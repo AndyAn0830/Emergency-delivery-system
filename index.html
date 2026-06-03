@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>急診傳送紀錄系統</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React + ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel (for JSX in browser) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+    window._firebase = { initializeApp, getApps, getApp, getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy };
+    window._firebaseReady = true;
+    window.dispatchEvent(new Event('firebaseReady'));
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+  <style>
+    @keyframes slideInFromBottom {
+      from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    .toast-anim { animation: slideInFromBottom 0.3s ease-out forwards; }
+
+    @keyframes fadeInZoom {
+      from { opacity: 0; transform: scale(0.95); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    .modal-anim { animation: fadeInZoom 0.2s ease-out forwards; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useMemo, useEffect, useRef } = React;
+
+    // ─── Lucide icon helper ───────────────────────────────────────────────────
+    function Icon({ name, className = '', strokeWidth = 2 }) {
+      const ref = useRef(null);
+      useEffect(() => {
+        if (ref.current && window.lucide) {
+          ref.current.innerHTML = '';
+          const svgStr = window.lucide.createElement
+            ? null
+            : null;
+          // Use lucide.createIcons or direct SVG
+          try {
+            const iconFn = window.lucide[name];
+            if (!iconFn) return;
+            const [tag, attrs, children] = iconFn;
+            // Create SVG manually
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            const mergedAttrs = { ...attrs, class: className, 'stroke-width': strokeWidth };
+            Object.entries(mergedAttrs).forEach(([k, v]) => svg.setAttribute(k, v));
+            (children || []).forEach(([childTag, childAttrs]) => {
+              const el = document.createElementNS('http://www.w3.org/2000/svg', childTag);
+              Object.entries(childAttrs || {}).forEach(([k, v]) => el.setAttribute(k, v));
+              svg.appendChild(el);
+            });
+            ref.current.appendChild(svg);
+          } catch(e) {}
+        }
+      }, [name, className, strokeWidth]);
+      return <span ref={ref} style={{display:'inline-flex',alignItems:'center'}}></span>;
+    }
+
+    // ─── Constants ────────────────────────────────────────────────────────────
+    const SHIFTS = ['白班', '小夜', '大夜'];
+    const getShiftByTime = () => {
+      const h = new Date().getHours();
+      if (h >= 8 && h < 16) return '白班';
+      if (h >= 16 && h < 24) return '小夜';
+      return '大夜';
+    };
+
+    const TRANSPORT_ITEMS = [
+      { id: 'oxygen',    name: '換氧氣',       icon: 'Wind',            color: 'bg-blue-100 text-blue-600 border-blue-200' },
+      { id: 'supply',    name: '供應室',        icon: 'Package',         color: 'bg-orange-100 text-orange-600 border-orange-200' },
+      { id: 'meal',      name: '打餐',          icon: 'Utensils',        color: 'bg-yellow-100 text-yellow-600 border-yellow-200' },
+      { id: 'fee',       name: '個費',          icon: 'Wallet',          color: 'bg-emerald-100 text-emerald-600 border-emerald-200' },
+      { id: 'records',   name: '還物品及病歷',  icon: 'FileBox',         color: 'bg-stone-100 text-stone-600 border-stone-200' },
+      { id: 'transfer',  name: '檢傷診間轉病人',icon: 'UserPlus',        color: 'bg-indigo-100 text-indigo-600 border-indigo-200' },
+      { id: 'empty_bed', name: '推空床',        icon: 'Bed',             color: 'bg-cyan-100 text-cyan-600 border-cyan-200' },
+      { id: 'make_bed',  name: '鋪床單',        icon: 'BedDouble',       color: 'bg-teal-100 text-teal-600 border-teal-200' },
+      { id: 'borrow',    name: '借物',          icon: 'ShoppingBag',     color: 'bg-fuchsia-100 text-fuchsia-600 border-fuchsia-200' },
+      { id: 'clothes',   name: '拿棉被、衣服',  icon: 'Shirt',           color: 'bg-rose-100 text-rose-600 border-rose-200' },
+      { id: 'ice',       name: '冰袋、枕套',    icon: 'Snowflake',       color: 'bg-sky-100 text-sky-600 border-sky-200' },
+      { id: 'first_aid', name: '急救盤',        icon: 'BriefcaseMedical',color: 'bg-red-100 text-red-600 border-red-200' },
+      { id: 'specimen',  name: '氣送檢體',      icon: 'TestTube',        color: 'bg-violet-100 text-violet-600 border-violet-200' },
+    ];
+
+    const MOCK_NAMES = ['陳大哥', '林大姊'];
+    const MOCK_DESTINATIONS = ['病房 3A', '放射科'];
+    const generateMockData = () => {
+      const records = [];
+      const today = new Date();
+      for (let i = 0; i < 50; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - Math.floor(Math.random() * 5));
+        const item = TRANSPORT_ITEMS[Math.floor(Math.random() * TRANSPORT_ITEMS.length)];
+        records.push({
+          id: `mock-${i}`,
+          item: item.name,
+          shift: SHIFTS[Math.floor(Math.random() * SHIFTS.length)],
+          date: d.toISOString().split('T')[0],
+          startTime: '10:00',
+          endTime: '10:15',
+          transporter: MOCK_NAMES[Math.floor(Math.random() * MOCK_NAMES.length)],
+          destination: MOCK_DESTINATIONS[Math.floor(Math.random() * MOCK_DESTINATIONS.length)],
+          timestamp: d.getTime(),
+        });
+      }
+      return records.sort((a, b) => b.timestamp - a.timestamp);
+    };
+
+    const DEFAULT_CONFIG = `{
+  "apiKey": "AIzaSyA2AlPL5m6hLxbTK-pAyQxI5ettKaufGHQ",
+  "authDomain": "emergency-delivery-system.firebaseapp.com",
+  "projectId": "emergency-delivery-system",
+  "storageBucket": "emergency-delivery-system.firebasestorage.app",
+  "messagingSenderId": "1057657296659",
+  "appId": "1:1057657296659:web:fc66fc58eba7a33cc7ace6"
+}`;
+
+    // ─── Main App ─────────────────────────────────────────────────────────────
+    function App() {
+      const [activeTab, setActiveTab] = useState('entry');
+      const [records, setRecords] = useState([]);
+      const [currentShift, setCurrentShift] = useState(getShiftByTime());
+      const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
+      const [currentUser, setCurrentUser] = useState('');
+      const [toastMessage, setToastMessage] = useState(null);
+      const [showSettings, setShowSettings] = useState(false);
+      const [firebaseConfigStr, setFirebaseConfigStr] = useState(
+        () => localStorage.getItem('ehr_firebase_config') || DEFAULT_CONFIG
+      );
+      const [db, setDb] = useState(null);
+      const [isCloudSync, setIsCloudSync] = useState(false);
+
+      const showToast = (msg, type = 'error') => {
+        setToastMessage({ text: msg, type });
+        setTimeout(() => setToastMessage(null), 3000);
+      };
+
+      useEffect(() => {
+        const init = () => {
+          if (!firebaseConfigStr.trim()) {
+            if (records.length === 0) setRecords(generateMockData());
+            setDb(null); setIsCloudSync(false); return;
+          }
+          try {
+            const fb = window._firebase;
+            if (!fb) { setRecords(generateMockData()); return; }
+            const config = JSON.parse(firebaseConfigStr);
+            const app = fb.getApps().length === 0 ? fb.initializeApp(config) : fb.getApp();
+            const firestoreDb = fb.getFirestore(app);
+            setDb(firestoreDb); setIsCloudSync(true);
+            const q = fb.query(fb.collection(firestoreDb, "transport_records"), fb.orderBy("timestamp", "desc"));
+            const unsub = fb.onSnapshot(q, (snapshot) => {
+              setRecords(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+            }, (err) => {
+              console.error(err);
+              showToast("雲端連線失敗，請檢查金鑰或網路", 'error');
+              setIsCloudSync(false);
+            });
+            return unsub;
+          } catch (e) {
+            console.error(e);
+            showToast("Firebase 設定檔格式錯誤 (需為 JSON)", 'error');
+            setIsCloudSync(false); setDb(null);
+          }
+        };
+
+        let unsub;
+        if (window._firebaseReady) {
+          unsub = init();
+        } else {
+          const handler = () => { unsub = init(); };
+          window.addEventListener('firebaseReady', handler, { once: true });
+          // fallback mock after 2s if firebase never loads
+          const t = setTimeout(() => {
+            if (!window._firebaseReady) { setRecords(generateMockData()); }
+          }, 2000);
+          return () => { window.removeEventListener('firebaseReady', handler); clearTimeout(t); };
+        }
+        return () => { if (typeof unsub === 'function') unsub(); };
+      }, [firebaseConfigStr]);
+
+      const saveConfig = (newConfigStr) => {
+        localStorage.setItem('ehr_firebase_config', newConfigStr);
+        setFirebaseConfigStr(newConfigStr);
+        setShowSettings(false);
+        if (newConfigStr) showToast("正在嘗試連線至 Firebase...", 'success');
+      };
+
+      const handleConfirmRecord = async (recordData) => {
+        const newRecord = {
+          item: recordData.item,
+          shift: currentShift,
+          date: currentDate,
+          startTime: recordData.startTime,
+          endTime: null,
+          transporter: currentUser,
+          destination: recordData.destination,
+          timestamp: Date.now(),
+        };
+        const fb = window._firebase;
+        if (fb && db && isCloudSync) {
+          try {
+            await fb.addDoc(fb.collection(db, "transport_records"), newRecord);
+            showToast("任務已同步至雲端", 'success');
+          } catch { showToast("寫入雲端失敗，請檢查權限", 'error'); }
+        } else {
+          setRecords(prev => [{ id: Date.now().toString(), ...newRecord }, ...prev]);
+        }
+      };
+
+      const handleCompleteRecord = async (id) => {
+        const now = new Date();
+        const t = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        const fb = window._firebase;
+        if (fb && db && isCloudSync) {
+          try {
+            await fb.updateDoc(fb.doc(db, "transport_records", id), { endTime: t });
+            showToast("任務完成，已同步", 'success');
+          } catch { showToast("更新雲端失敗", 'error'); }
+        } else {
+          setRecords(prev => prev.map(r => r.id === id ? { ...r, endTime: t } : r));
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-800 relative">
+          {/* Toast */}
+          {toastMessage && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 toast-anim">
+              <div className={`px-6 py-3 rounded-full shadow-lg text-sm font-medium flex items-center gap-2 ${
+                toastMessage.type === 'error' ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'
+              }`}>
+                <Icon name={toastMessage.type === 'error' ? 'AlertCircle' : 'CheckCircle'} className="h-4 w-4" />
+                {toastMessage.text}
+              </div>
+            </div>
+          )}
+
+          {/* Settings Modal */}
+          {showSettings && (
+            <FirebaseSettingsModal currentConfig={firebaseConfigStr} onSave={saveConfig} onClose={() => setShowSettings(false)} />
+          )}
+
+          <header className="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-10">
+            <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex justify-between items-center h-16">
+                <div className="flex items-center gap-2">
+                  <Icon name="Activity" className="h-6 w-6 text-indigo-600" />
+                  <h1 className="text-xl font-bold text-slate-900 hidden sm:block">急診傳送紀錄系統</h1>
+                  <div className={`ml-2 px-2 py-1 rounded-md flex items-center gap-1 text-xs font-medium border ${
+                    isCloudSync ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'
+                  }`}>
+                    <Icon name={isCloudSync ? 'Cloud' : 'CloudOff'} className="h-3 w-3" />
+                    {isCloudSync ? '已連線雲端' : '本機模式'}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 sm:space-x-4">
+                  <button onClick={() => setActiveTab('entry')} className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    activeTab === 'entry' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'
+                  }`}>
+                    <Icon name="ClipboardList" className="h-4 w-4" />
+                    <span className="hidden sm:inline">紀錄登錄</span>
+                  </button>
+                  <button onClick={() => setActiveTab('analytics')} className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    activeTab === 'analytics' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'
+                  }`}>
+                    <Icon name="BarChart3" className="h-4 w-4" />
+                    <span className="hidden sm:inline">統計分析</span>
+                  </button>
+                  <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                  <button onClick={() => setShowSettings(true)} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors" title="系統設定">
+                    <Icon name="Settings" className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {activeTab === 'entry' ? (
+              <RecordEntry
+                records={records}
+                handleConfirmRecord={handleConfirmRecord}
+                handleCompleteRecord={handleCompleteRecord}
+                currentShift={currentShift} setCurrentShift={setCurrentShift}
+                currentDate={currentDate} setCurrentDate={setCurrentDate}
+                currentUser={currentUser} setCurrentUser={setCurrentUser}
+                showToast={showToast}
+              />
+            ) : (
+              <Analytics records={records} />
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    // ─── Firebase Settings Modal ──────────────────────────────────────────────
+    function FirebaseSettingsModal({ currentConfig, onSave, onClose }) {
+      const [val, setVal] = useState(currentConfig);
+      const handleSave = () => {
+        if (val.trim()) {
+          try { JSON.parse(val); }
+          catch { alert("格式錯誤！請輸入正確的 JSON 格式！"); return; }
+        }
+        onSave(val.trim());
+      };
+      return (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden modal-anim">
+            <div className="px-6 py-4 border-b flex justify-between items-center bg-slate-50">
+              <div className="flex items-center gap-2">
+                <Icon name="Database" className="h-5 w-5 text-indigo-600" />
+                <h3 className="text-lg font-bold text-slate-800">資料庫同步設定 (Firebase)</h3>
+              </div>
+              <button onClick={onClose} className="text-slate-500 hover:bg-slate-200 p-1 rounded-md transition-colors">
+                <Icon name="X" className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">
+                請貼上您的 Firebase 專案設定檔 (JSON 格式)。設定成功後，所有資料將自動在跨裝置間即時同步。<br />
+                <span className="text-xs text-indigo-600 font-medium">※ 若留空並儲存，系統將回歸本機模式。</span>
+              </p>
+              <textarea
+                value={val}
+                onChange={(e) => setVal(e.target.value)}
+                placeholder={DEFAULT_CONFIG}
+                className="w-full h-48 px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 font-mono text-sm outline-none"
+              />
+              <div className="flex gap-3 pt-2">
+                <button onClick={onClose} className="flex-1 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">取消</button>
+                <button onClick={handleSave} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700">儲存設定</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Record Entry ─────────────────────────────────────────────────────────
+    function RecordEntry({ records, handleConfirmRecord, handleCompleteRecord,
+      currentShift, setCurrentShift, currentDate, setCurrentDate,
+      currentUser, setCurrentUser, showToast }) {
+      const [tempUser, setTempUser] = useState(currentUser);
+      const [showTaskModal, setShowTaskModal] = useState(false);
+      const [selectedTask, setSelectedTask] = useState(null);
+      const [taskStartTime, setTaskStartTime] = useState('');
+      const [taskDestination, setTaskDestination] = useState('');
+
+      const todaysRecords = records.filter(r => r.date === currentDate);
+
+      const handleLogin = (e) => {
+        e.preventDefault();
+        if (tempUser.trim()) { setCurrentUser(tempUser.trim()); showToast(`歡迎值勤，${tempUser.trim()}！`, 'success'); }
+      };
+
+      const handleTaskClick = (item) => {
+        setSelectedTask(item);
+        const now = new Date();
+        setTaskStartTime(`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`);
+        setTaskDestination('');
+        setShowTaskModal(true);
+      };
+
+      const submitTask = (e) => {
+        e.preventDefault();
+        if (!taskDestination.trim()) { showToast("請填寫終點", 'error'); return; }
+        handleConfirmRecord({ item: selectedTask.name, startTime: taskStartTime, destination: taskDestination.trim() });
+        setShowTaskModal(false); setSelectedTask(null);
+      };
+
+      if (!currentUser) {
+        return (
+          <div className="max-w-md mx-auto mt-12 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+            <div className="flex justify-center mb-6">
+              <div className="bg-indigo-100 p-4 rounded-full">
+                <Icon name="User" className="h-10 w-10 text-indigo-600" />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold text-center text-slate-800 mb-6">傳送員簽到</h2>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">您的姓名</label>
+                <input type="text" value={tempUser} onChange={(e) => setTempUser(e.target.value)}
+                  placeholder="請輸入姓名..."
+                  className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  required />
+              </div>
+              <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-3 rounded-lg hover:bg-indigo-700 shadow-sm">開始執勤</button>
+            </form>
+          </div>
+        );
+      }
+
+      return (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative">
+          {/* Task Modal */}
+          {showTaskModal && (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden modal-anim">
+                <div className="px-6 py-4 border-b flex justify-between items-center bg-slate-50">
+                  <div className="flex items-center gap-3">
+                    {selectedTask && <Icon name={selectedTask.icon} className={`h-6 w-6 ${selectedTask.color.split(' ')[1]}`} />}
+                    <h3 className="text-lg font-bold text-slate-800">任務：{selectedTask?.name}</h3>
+                  </div>
+                  <button onClick={() => setShowTaskModal(false)} className="text-slate-500 hover:bg-slate-200 p-1 rounded-md">
+                    <Icon name="X" className="h-5 w-5" />
+                  </button>
+                </div>
+                <form onSubmit={submitTask} className="p-6 space-y-5">
+                  <div className="bg-slate-50 p-3 rounded-lg flex items-center justify-between border border-slate-100">
+                    <span className="text-sm text-slate-500 flex items-center gap-2">
+                      <Icon name="User" className="h-4 w-4" /> 傳送員
+                    </span>
+                    <span className="font-semibold text-slate-800">{currentUser}</span>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
+                      <Icon name="Clock" className="h-4 w-4 text-slate-400" /> 起始時間
+                    </label>
+                    <input type="time" value={taskStartTime} onChange={(e) => setTaskStartTime(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                  </div>
+                  <div className="relative">
+                    <div className="absolute top-0 left-4 bottom-0 flex flex-col items-center justify-center space-y-1">
+                      <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                      <div className="w-0.5 h-6 bg-slate-200"></div>
+                      <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+                    </div>
+                    <div className="pl-10 space-y-4">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">起點</label>
+                        <div className="w-full px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-medium">急診室</div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-indigo-600 mb-1">終點 (必填)</label>
+                        <input type="text" value={taskDestination} onChange={(e) => setTaskDestination(e.target.value)}
+                          placeholder="例：病房 3A、放射科..."
+                          className="w-full px-4 py-2 rounded-lg border-2 border-indigo-200 focus:border-indigo-500 outline-none"
+                          autoFocus required />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="pt-2">
+                    <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 shadow-sm flex justify-center items-center gap-2">
+                      確認送出 <Icon name="ArrowRight" className="h-4 w-4" />
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Left Panel */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-wrap gap-4 items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                  <Icon name="User" className="h-4 w-4 text-indigo-500" />
+                  <span className="font-medium text-sm">{currentUser}</span>
+                  <button onClick={() => setCurrentUser('')} className="ml-2 text-xs text-slate-500 hover:text-indigo-600 underline">登出</button>
+                </div>
+                <div className="flex items-center gap-2 text-slate-700">
+                  <Icon name="Calendar" className="h-5 w-5 text-indigo-500" />
+                  <input type="date" value={currentDate} onChange={(e) => setCurrentDate(e.target.value)}
+                    className="border-none bg-slate-100 rounded px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-sm" />
+                </div>
+              </div>
+              <div className="flex items-center bg-slate-100 p-1 rounded-lg">
+                {SHIFTS.map(shift => (
+                  <button key={shift} onClick={() => setCurrentShift(shift)}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                      currentShift === shift ? 'bg-white shadow-sm text-indigo-700 border border-slate-200' : 'text-slate-500 hover:text-slate-700'
+                    }`}>
+                    {shift}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-800 mb-1 flex items-center gap-2">
+                <Icon name="PlusCircle" className="h-5 w-5 text-indigo-500" />
+                選擇傳送任務
+              </h2>
+              <p className="text-sm text-slate-500 mb-5">點擊下方按鈕以建立新的傳送紀錄</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {TRANSPORT_ITEMS.map((item) => (
+                  <button key={item.id} onClick={() => handleTaskClick(item)}
+                    className={`flex flex-col items-center justify-center p-4 rounded-xl border ${item.color} hover:shadow-md transition-all active:scale-95`}>
+                    <Icon name={item.icon} className="h-8 w-8 mb-2" strokeWidth={1.5} />
+                    <span className="text-sm font-medium text-center leading-tight">{item.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Panel */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[650px] sticky top-24">
+              <div className="p-4 border-b border-slate-100 bg-slate-50/50 rounded-t-xl flex justify-between items-center">
+                <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+                  <Icon name="ClipboardList" className="h-5 w-5 text-slate-500" />
+                  {currentDate === new Date().toISOString().split('T')[0] ? '今日' : '選定日期'}任務
+                </h2>
+                <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-1 rounded-full">
+                  共 {todaysRecords.length} 件
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {todaysRecords.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                    <Icon name="ClipboardList" className="h-12 w-12 mb-2 opacity-20" />
+                    <p className="text-sm">尚無任務紀錄</p>
+                  </div>
+                ) : todaysRecords.map((record) => {
+                  const itemDef = TRANSPORT_ITEMS.find(i => i.name === record.item);
+                  const isCompleted = !!record.endTime;
+                  return (
+                    <div key={record.id} className={`flex flex-col p-3 bg-white border ${isCompleted ? 'border-slate-200' : 'border-emerald-300 shadow-sm'} rounded-lg transition-colors`}>
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-1.5 rounded-md ${itemDef ? itemDef.color : 'bg-slate-100'}`}>
+                            <Icon name={itemDef ? itemDef.icon : 'Package'} className="h-4 w-4" />
+                          </div>
+                          <p className="text-sm font-bold text-slate-800">{record.item}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 ${isCompleted ? 'bg-slate-100 text-slate-500' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>
+                            <Icon name="Clock" className="h-3 w-3" />
+                            {record.startTime} {isCompleted ? `- ${record.endTime}` : '(進行中)'}
+                          </span>
+                          {!isCompleted && (
+                            <button onClick={() => handleCompleteRecord(record.id)}
+                              className="flex items-center gap-1 text-xs bg-emerald-500 text-white hover:bg-emerald-600 px-2 py-0.5 rounded font-bold shadow-sm">
+                              <Icon name="CheckCircle" className="h-3 w-3" /> 完成
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="pl-8 space-y-1">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                          <Icon name="User" className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="font-medium">{record.transporter}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                          <Icon name="MapPin" className="h-3.5 w-3.5 text-indigo-400" />
+                          <span className="text-slate-500 truncate">
+                            急診 → <span className="font-medium text-slate-700">{record.destination}</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Analytics ────────────────────────────────────────────────────────────
+    function Analytics({ records }) {
+      const [filterMonth, setFilterMonth] = useState('');
+
+      const availableMonths = useMemo(() => {
+        const months = new Set(records.map(r => r.date?.substring(0, 7)).filter(Boolean));
+        return Array.from(months).sort().reverse();
+      }, [records]);
+
+      const filteredRecords = useMemo(() => {
+        if (!filterMonth) return records;
+        return records.filter(r => r.date?.startsWith(filterMonth));
+      }, [records, filterMonth]);
+
+      const stats = useMemo(() => {
+        const total = filteredRecords.length;
+        const itemCounts = {};
+        TRANSPORT_ITEMS.forEach(i => itemCounts[i.name] = 0);
+        const shiftCounts = { '白班': 0, '小夜': 0, '大夜': 0 };
+        const personCounts = {};
+        filteredRecords.forEach(r => {
+          if (itemCounts[r.item] !== undefined) itemCounts[r.item]++;
+          if (shiftCounts[r.shift] !== undefined) shiftCounts[r.shift]++;
+          const name = r.transporter || '未知';
+          personCounts[name] = (personCounts[name] || 0) + 1;
+        });
+        const sortedItems = Object.entries(itemCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+        const sortedPersons = Object.entries(personCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+        return { total, sortedItems, shiftCounts, sortedPersons };
+      }, [filteredRecords]);
+
+      const exportToExcel = () => {
+        const BOM = '\uFEFF';
+        const headers = ['日期', '班別', '傳送員', '傳送項目', '起點', '終點', '起始時間', '完成時間', '狀態'];
+        const rows = filteredRecords.map(r => [
+          r.date, r.shift, r.transporter, r.item, '急診室', r.destination, r.startTime, r.endTime || '', r.endTime ? '已完成' : '進行中'
+        ]);
+        const csvContent = BOM + [headers.join(','), ...rows.map(row => row.map(cell => `"${cell || ''}"`).join(','))].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `急診傳送紀錄_${filterMonth || '全部'}.csv`;
+        link.click();
+      };
+
+      const maxItemCount = stats.sortedItems.length > 0 ? stats.sortedItems[0].count : 1;
+      const maxPersonCount = stats.sortedPersons.length > 0 ? stats.sortedPersons[0].count : 1;
+
+      return (
+        <div className="space-y-6">
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-4">
+            <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+              <Icon name="TrendingUp" className="h-5 w-5 text-indigo-500" />
+              數據儀表板
+            </h2>
+            <div className="flex items-center gap-3">
+              <select value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}
+                className="border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                <option value="">全部時間</option>
+                {availableMonths.map(month => <option key={month} value={month}>{month.replace('-', '年')}月</option>)}
+              </select>
+              <button onClick={exportToExcel} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-md text-sm font-medium transition-colors">
+                <Icon name="Download" className="h-4 w-4" /> 匯出 Excel
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+              <div className="bg-indigo-100 p-4 rounded-full text-indigo-600"><Icon name="ClipboardList" className="h-8 w-8" /></div>
+              <div>
+                <p className="text-sm font-medium text-slate-500 mb-1">總傳送任務</p>
+                <p className="text-3xl font-bold text-slate-800">{stats.total} <span className="text-sm font-normal text-slate-500">件</span></p>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
+              <p className="text-sm font-medium text-slate-500 mb-3 flex items-center gap-1"><Icon name="User" className="h-4 w-4" /> 傳送神隊友 (Top 3)</p>
+              <div className="space-y-2">
+                {stats.sortedPersons.slice(0, 3).map((person, idx) => (
+                  <div key={person.name} className="flex justify-between items-center text-sm">
+                    <span className="flex items-center gap-2">
+                      <span className={`text-xs font-bold w-4 text-center ${idx === 0 ? 'text-amber-500' : idx === 1 ? 'text-slate-400' : 'text-amber-700'}`}>#{idx+1}</span>
+                      <span className="font-medium text-slate-700">{person.name}</span>
+                    </span>
+                    <span className="text-slate-500">{person.count} 件</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
+              <p className="text-sm font-medium text-slate-500 mb-3">班別負載分佈</p>
+              <div className="flex gap-2 h-4 w-full rounded-full overflow-hidden bg-slate-100">
+                <div style={{width:`${(stats.shiftCounts['白班']/(stats.total||1)*100)}%`}} className="bg-amber-400"></div>
+                <div style={{width:`${(stats.shiftCounts['小夜']/(stats.total||1)*100)}%`}} className="bg-indigo-500"></div>
+                <div style={{width:`${(stats.shiftCounts['大夜']/(stats.total||1)*100)}%`}} className="bg-slate-700"></div>
+              </div>
+              <div className="flex justify-between text-xs text-slate-500 mt-2 px-1">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>白班 ({stats.shiftCounts['白班']})</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500 inline-block"></span>小夜 ({stats.shiftCounts['小夜']})</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-700 inline-block"></span>大夜 ({stats.shiftCounts['大夜']})</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+              <h3 className="font-semibold text-slate-800 mb-6">任務類型統計</h3>
+              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+                {stats.sortedItems.map((item, index) => {
+                  const widthPct = maxItemCount > 0 ? (item.count / maxItemCount) * 100 : 0;
+                  if (item.count === 0 && index > 4) return null;
+                  return (
+                    <div key={item.name}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="font-medium text-slate-700">{item.name}</span>
+                        <span className="text-slate-500">{item.count} 件</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-2">
+                        <div className="bg-indigo-500 h-2 rounded-full transition-all duration-1000" style={{width:`${widthPct}%`}}></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col">
+              <h3 className="font-semibold text-slate-800 mb-6 flex items-center gap-2"><Icon name="UserPlus" className="h-5 w-5 text-indigo-400" /> 人員出勤統計</h3>
+              <div className="space-y-4 flex-1">
+                {stats.sortedPersons.map((person) => {
+                  const widthPct = maxPersonCount > 0 ? (person.count / maxPersonCount) * 100 : 0;
+                  return (
+                    <div key={person.name}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="font-medium text-slate-600">{person.name}</span>
+                        <span className="text-slate-500 text-xs">{person.count} 件</span>
+                      </div>
+                      <div className="w-full bg-slate-50 rounded-md h-6 border border-slate-100 overflow-hidden">
+                        <div className="bg-emerald-400 h-full transition-all duration-1000" style={{width:`${widthPct}%`}}></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Mount ────────────────────────────────────────────────────────────────
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
