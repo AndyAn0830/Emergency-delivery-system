@@ -587,12 +587,56 @@
       );
     }
 
+    // ─── Password Modal ───────────────────────────────────────────────────────
+    const MANAGE_PASSWORD = '13391';
+    function PasswordModal({ onSuccess, onCancel }) {
+      const [input, setInput] = useState('');
+      const [error, setError] = useState(false);
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (input === MANAGE_PASSWORD) { onSuccess(); }
+        else { setError(true); setInput(''); setTimeout(() => setError(false), 2000); }
+      };
+      return (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden modal-anim">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Icon name="Lock" className="h-5 w-5 text-slate-500" /> 請輸入管理密碼
+              </h3>
+              <button onClick={onCancel} className="text-slate-400 hover:bg-slate-200 p-1 rounded-md">
+                <Icon name="X" className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <input
+                type="password" value={input} onChange={(e) => setInput(e.target.value)}
+                placeholder="請輸入密碼" autoFocus
+                className={`w-full px-4 py-3 rounded-lg border-2 outline-none text-center text-lg tracking-widest transition-colors ${
+                  error ? 'border-rose-400 bg-rose-50 text-rose-600' : 'border-slate-300 focus:border-indigo-500'
+                }`}
+              />
+              {error && <p className="text-sm text-rose-500 text-center">密碼錯誤，請再試一次</p>}
+              <div className="flex gap-3">
+                <button type="button" onClick={onCancel} className="flex-1 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">取消</button>
+                <button type="submit" className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700">確認</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
     // ─── Analytics ────────────────────────────────────────────────────────────
     function Analytics({ records, handleDeleteByRange, handleClearAll, isCloudSync }) {
       const [filterMode, setFilterMode] = useState('month'); // 'month' | 'range'
       const [filterMonth, setFilterMonth] = useState('');
       const [filterFrom, setFilterFrom] = useState('');
       const [filterTo, setFilterTo] = useState('');
+
+      // 密碼驗證狀態
+      const [showPasswordModal, setShowPasswordModal] = useState(false);
+      const [isAuthenticated, setIsAuthenticated] = useState(false);
 
       // 刪除相關狀態
       const [showDeleteRange, setShowDeleteRange] = useState(false);
@@ -672,6 +716,14 @@
 
       return (
         <div className="space-y-6">
+          {/* 密碼驗證 Modal */}
+          {showPasswordModal && (
+            <PasswordModal
+              onSuccess={() => { setIsAuthenticated(true); setShowPasswordModal(false); setShowDeleteRange(true); }}
+              onCancel={() => setShowPasswordModal(false)}
+            />
+          )}
+
           {/* 確認對話框 */}
           {confirmDelete === 'range' && (
             <ConfirmDialog
@@ -700,9 +752,9 @@
                 <button onClick={exportToExcel} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-md text-sm font-medium transition-colors">
                   <Icon name="Download" className="h-4 w-4" /> 匯出 CSV
                 </button>
-                <button onClick={() => setShowDeleteRange(!showDeleteRange)}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-colors border ${showDeleteRange ? 'bg-rose-50 text-rose-600 border-rose-300' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
-                  <Icon name="Trash2" className="h-4 w-4" /> 管理資料
+                <button onClick={() => { if (isAuthenticated) { setShowDeleteRange(!showDeleteRange); } else { setShowPasswordModal(true); } }}
+                  className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-colors border ${showDeleteRange && isAuthenticated ? 'bg-rose-50 text-rose-600 border-rose-300' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                  <Icon name={isAuthenticated ? 'Trash2' : 'Lock'} className="h-4 w-4" /> 管理資料
                 </button>
               </div>
             </div>
