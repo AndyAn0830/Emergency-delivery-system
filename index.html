@@ -69,34 +69,40 @@
     };
 
     const TRANSPORT_ITEMS = [
-      { id: 'oxygen',    name: '換氧氣',        icon: 'Wind',             color: 'bg-blue-100 text-blue-600 border-blue-200' },
-      { id: 'supply',    name: '供應室',         icon: 'Package',          color: 'bg-orange-100 text-orange-600 border-orange-200' },
-      { id: 'meal',      name: '打餐',           icon: 'Utensils',         color: 'bg-yellow-100 text-yellow-600 border-yellow-200' },
+      { id: 'oxygen',    name: '換氧氣',        icon: 'Wind',             color: 'bg-blue-100 text-blue-600 border-blue-200',         presetDest: '傳送中心' },
+      { id: 'supply',    name: '供應室',         icon: 'Package',          color: 'bg-orange-100 text-orange-600 border-orange-200',   presetDest: '供應中心' },
+      { id: 'meal',      name: '送餐盒',         icon: 'Utensils',         color: 'bg-yellow-100 text-yellow-600 border-yellow-200',   presetDest: '同心圓餐廳' },
       { id: 'fee',       name: '個費',           icon: 'Wallet',           color: 'bg-emerald-100 text-emerald-600 border-emerald-200' },
       { id: 'records',   name: '還物品及病歷',   icon: 'FileBox',          color: 'bg-stone-100 text-stone-600 border-stone-200' },
       { id: 'transfer',  name: '檢傷診間轉病人', icon: 'UserPlus',         color: 'bg-indigo-100 text-indigo-600 border-indigo-200' },
-      { id: 'empty_bed', name: '推空床',         icon: 'Bed',              color: 'bg-cyan-100 text-cyan-600 border-cyan-200' },
-      { id: 'make_bed',  name: '鋪床單',         icon: 'BedDouble',        color: 'bg-teal-100 text-teal-600 border-teal-200' },
+      { id: 'empty_bed', name: '推空床',         icon: 'Bed',              color: 'bg-cyan-100 text-cyan-600 border-cyan-200',         presetDest: '急診室' },
+      { id: 'make_bed',  name: '鋪床單',         icon: 'BedDouble',        color: 'bg-teal-100 text-teal-600 border-teal-200',         presetDest: '急診室' },
       { id: 'borrow',    name: '借物',           icon: 'ShoppingBag',      color: 'bg-fuchsia-100 text-fuchsia-600 border-fuchsia-200' },
-      { id: 'clothes',   name: '拿棉被、衣服',   icon: 'Shirt',            color: 'bg-rose-100 text-rose-600 border-rose-200' },
-      { id: 'ice',       name: '冰袋、枕套',     icon: 'Snowflake',        color: 'bg-sky-100 text-sky-600 border-sky-200' },
-      { id: 'first_aid', name: '急救盤',         icon: 'BriefcaseMedical', color: 'bg-red-100 text-red-600 border-red-200' },
-      { id: 'specimen',  name: '氣送檢體',       icon: 'TestTube',         color: 'bg-violet-100 text-violet-600 border-violet-200' },
-      { id: 'ct',        name: 'CT',             icon: 'ScanLine',         color: 'bg-purple-100 text-purple-600 border-purple-200',  presetDest: '合心樓CT' },
+      { id: 'clothes',   name: '拿棉被、衣服',   icon: 'Shirt',            color: 'bg-rose-100 text-rose-600 border-rose-200',         presetDest: '急診室' },
+      { id: 'ice',       name: '冰袋、枕套',     icon: 'Snowflake',        color: 'bg-sky-100 text-sky-600 border-sky-200',            presetDest: '急診室' },
+      { id: 'first_aid', name: '急救盤',         icon: 'BriefcaseMedical', color: 'bg-red-100 text-red-600 border-red-200',            presetDest: '急診藥局' },
+      { id: 'specimen',  name: '氣送檢體',       icon: 'TestTube',         color: 'bg-violet-100 text-violet-600 border-violet-200',   presetDest: '急診室' },
+      { id: 'ct',        name: 'CT',             icon: 'ScanLine',         color: 'bg-purple-100 text-purple-600 border-purple-200',   presetDest: '合心樓CT' },
       { id: 'mri',       name: 'MRI',            icon: 'Magnet',           color: 'bg-pink-100 text-pink-600 border-pink-200',         presetDest: '合心樓MRI' },
       { id: 'xray',      name: 'X-RAY',          icon: 'RadioTower',       color: 'bg-lime-100 text-lime-600 border-lime-200',         presetDest: '合心樓 X-RAY' },
       { id: 'anesthesia',name: '麻醉訪視',       icon: 'Stethoscope',      color: 'bg-amber-100 text-amber-600 border-amber-200',      presetDest: '麻醉訪視門診' },
       { id: 'surgery',   name: '送刀',           icon: 'Scissors',         color: 'bg-red-100 text-red-700 border-red-200',            presetDest: '開刀房' },
       { id: 'medicine',  name: '領藥',           icon: 'Pill',             color: 'bg-green-100 text-green-600 border-green-200',      presetDest: '急診藥局' },
       { id: 'specimen2', name: '檢體',           icon: 'FlaskConical',     color: 'bg-orange-100 text-orange-600 border-orange-200',   presetDest: '檢驗科' },
+      { id: 'exam',      name: '檢查',           icon: 'ClipboardCheck',   color: 'bg-indigo-100 text-indigo-700 border-indigo-200',   presetDest: '' },
     ];
 
     // 地點關鍵字建議清單
     const DEST_SUGGESTIONS = [
-      '合心樓CT', '合心樓MRI', '合心樓 X-RAY', '麻醉訪視門診', '開刀房',
-      '急診藥局', '檢驗科',
       '心功能檢查室', '消化功能檢查室', '牙科', '眼科', '洗腎室', '婦產科',
-      '病房', '放射科', '供應室',
+      '合心樓CT', '合心樓MRI', '合心樓 X-RAY', '麻醉訪視門診', '開刀房',
+      '急診藥局', '檢驗科', '傳送中心', '供應中心', '同心圓餐廳',
+      '病房', '放射科', '急診室',
+    ];
+
+    // 「檢查」項目專屬建議地點（點選後直接顯示清單）
+    const EXAM_DESTINATIONS = [
+      '心功能檢查室', '消化功能檢查室', '牙科', '眼科', '洗腎室', '婦產科',
     ];
 
     const generateMockData = () => {
@@ -418,9 +424,9 @@
         setSelectedTask(item);
         const now = new Date();
         setTaskStartTime(`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`);
-        // 有預設地點直接帶入
         setTaskDestination(item.presetDest || '');
-        setDestSuggestions([]);
+        // 「檢查」項目：點選後直接顯示地點選單
+        setDestSuggestions(item.id === 'exam' ? EXAM_DESTINATIONS : []);
         setShowTaskModal(true);
       };
       const handleDestInput = (val) => {
@@ -436,12 +442,24 @@
         setShowTaskModal(false); setSelectedTask(null); setDestSuggestions([]);
       };
       const closeTaskModal = () => { setShowTaskModal(false); setSelectedTask(null); setDestSuggestions([]); };
-      // Enter 鍵關閉 modal（返回任務選單）
+      // Esc 鍵 + 手機瀏覽器返回鍵 → 關閉 modal
       useEffect(() => {
         if (!showTaskModal) return;
-        const handler = (e) => { if (e.key === 'Escape') closeTaskModal(); };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
+        // Esc 鍵（電腦）
+        const keyHandler = (e) => { if (e.key === 'Escape') closeTaskModal(); };
+        window.addEventListener('keydown', keyHandler);
+        // 手機返回鍵：pushState 佔位，popstate 時攔截
+        window.history.pushState({ modalOpen: true }, '');
+        const popHandler = (e) => { closeTaskModal(); };
+        window.addEventListener('popstate', popHandler);
+        return () => {
+          window.removeEventListener('keydown', keyHandler);
+          window.removeEventListener('popstate', popHandler);
+          // 如果是程式主動關閉（非返回鍵），把剛才 push 的 state 清掉
+          if (window.history.state && window.history.state.modalOpen) {
+            window.history.back();
+          }
+        };
       }, [showTaskModal]);
 
       if (!currentUser) {
@@ -506,11 +524,15 @@
                       </div>
                       <div className="relative">
                         <label className="block text-xs font-medium text-indigo-600 mb-1">
-                          終點 (必填){selectedTask?.presetDest ? <span className="ml-2 text-emerald-500 font-normal">✓ 已自動帶入</span> : <span className="ml-2 text-slate-400 font-normal">輸入關鍵字可快速選擇</span>}
+                          終點 (必填){selectedTask?.presetDest
+                            ? <span className="ml-2 text-emerald-500 font-normal">✓ 已自動帶入</span>
+                            : selectedTask?.id === 'exam'
+                              ? <span className="ml-2 text-indigo-400 font-normal">請從清單選擇或手動輸入</span>
+                              : <span className="ml-2 text-slate-400 font-normal">輸入關鍵字可快速選擇</span>}
                         </label>
                         <input type="text" value={taskDestination}
                           onChange={(e) => handleDestInput(e.target.value)}
-                          placeholder="例：病房 3A、放射科、心功能..."
+                          placeholder={selectedTask?.id === 'exam' ? '選擇或輸入檢查地點...' : '例：病房 3A、放射科...'}
                           autoFocus={!selectedTask?.presetDest} required
                           className="w-full px-4 py-2 rounded-lg border-2 border-indigo-200 focus:border-indigo-500 outline-none" />
                         {destSuggestions.length > 0 && (
