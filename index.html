@@ -82,6 +82,21 @@
       { id: 'ice',       name: '冰袋、枕套',     icon: 'Snowflake',        color: 'bg-sky-100 text-sky-600 border-sky-200' },
       { id: 'first_aid', name: '急救盤',         icon: 'BriefcaseMedical', color: 'bg-red-100 text-red-600 border-red-200' },
       { id: 'specimen',  name: '氣送檢體',       icon: 'TestTube',         color: 'bg-violet-100 text-violet-600 border-violet-200' },
+      { id: 'ct',        name: 'CT',             icon: 'ScanLine',         color: 'bg-purple-100 text-purple-600 border-purple-200',  presetDest: '合心樓CT' },
+      { id: 'mri',       name: 'MRI',            icon: 'Magnet',           color: 'bg-pink-100 text-pink-600 border-pink-200',         presetDest: '合心樓MRI' },
+      { id: 'xray',      name: 'X-RAY',          icon: 'RadioTower',       color: 'bg-lime-100 text-lime-600 border-lime-200',         presetDest: '合心樓 X-RAY' },
+      { id: 'anesthesia',name: '麻醉訪視',       icon: 'Stethoscope',      color: 'bg-amber-100 text-amber-600 border-amber-200',      presetDest: '麻醉訪視門診' },
+      { id: 'surgery',   name: '送刀',           icon: 'Scissors',         color: 'bg-red-100 text-red-700 border-red-200',            presetDest: '開刀房' },
+      { id: 'medicine',  name: '領藥',           icon: 'Pill',             color: 'bg-green-100 text-green-600 border-green-200',      presetDest: '急診藥局' },
+      { id: 'specimen2', name: '檢體',           icon: 'FlaskConical',     color: 'bg-orange-100 text-orange-600 border-orange-200',   presetDest: '檢驗科' },
+    ];
+
+    // 地點關鍵字建議清單
+    const DEST_SUGGESTIONS = [
+      '合心樓CT', '合心樓MRI', '合心樓 X-RAY', '麻醉訪視門診', '開刀房',
+      '急診藥局', '檢驗科',
+      '心功能檢查室', '消化功能檢查室', '牙科', '眼科', '洗腎室', '婦產科',
+      '病房', '放射科', '供應室',
     ];
 
     const generateMockData = () => {
@@ -391,6 +406,7 @@
       const [selectedTask, setSelectedTask] = useState(null);
       const [taskStartTime, setTaskStartTime] = useState('');
       const [taskDestination, setTaskDestination] = useState('');
+      const [destSuggestions, setDestSuggestions] = useState([]);
 
       const todaysRecords = records.filter(r => r.date === currentDate);
 
@@ -402,14 +418,31 @@
         setSelectedTask(item);
         const now = new Date();
         setTaskStartTime(`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`);
-        setTaskDestination(''); setShowTaskModal(true);
+        // 有預設地點直接帶入
+        setTaskDestination(item.presetDest || '');
+        setDestSuggestions([]);
+        setShowTaskModal(true);
+      };
+      const handleDestInput = (val) => {
+        setTaskDestination(val);
+        if (val.trim().length === 0) { setDestSuggestions([]); return; }
+        const matched = DEST_SUGGESTIONS.filter(s => s.includes(val.trim()));
+        setDestSuggestions(matched);
       };
       const submitTask = (e) => {
         e.preventDefault();
         if (!taskDestination.trim()) { showToast("請填寫終點", 'error'); return; }
         handleConfirmRecord({ item: selectedTask.name, startTime: taskStartTime, destination: taskDestination.trim() });
-        setShowTaskModal(false); setSelectedTask(null);
+        setShowTaskModal(false); setSelectedTask(null); setDestSuggestions([]);
       };
+      const closeTaskModal = () => { setShowTaskModal(false); setSelectedTask(null); setDestSuggestions([]); };
+      // Enter 鍵關閉 modal（返回任務選單）
+      useEffect(() => {
+        if (!showTaskModal) return;
+        const handler = (e) => { if (e.key === 'Escape') closeTaskModal(); };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+      }, [showTaskModal]);
 
       if (!currentUser) {
         return (
@@ -438,10 +471,13 @@
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden modal-anim">
                 <div className="px-6 py-4 border-b flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-3">
+                    <button onClick={closeTaskModal} className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 p-1.5 rounded-md transition-colors" title="返回（Esc）">
+                      <Icon name="ArrowLeft" className="h-5 w-5" />
+                    </button>
                     {selectedTask && <Icon name={selectedTask.icon} className={`h-6 w-6 ${selectedTask.color.split(' ')[1]}`} />}
                     <h3 className="text-lg font-bold text-slate-800">任務：{selectedTask?.name}</h3>
                   </div>
-                  <button onClick={() => setShowTaskModal(false)} className="text-slate-500 hover:bg-slate-200 p-1 rounded-md">
+                  <button onClick={closeTaskModal} className="text-slate-500 hover:bg-slate-200 p-1 rounded-md">
                     <Icon name="X" className="h-5 w-5" />
                   </button>
                 </div>
@@ -468,11 +504,27 @@
                         <label className="block text-xs font-medium text-slate-500 mb-1">起點</label>
                         <div className="w-full px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-medium">急診室</div>
                       </div>
-                      <div>
-                        <label className="block text-xs font-medium text-indigo-600 mb-1">終點 (必填)</label>
-                        <input type="text" value={taskDestination} onChange={(e) => setTaskDestination(e.target.value)}
-                          placeholder="例：病房 3A、放射科..." autoFocus required
+                      <div className="relative">
+                        <label className="block text-xs font-medium text-indigo-600 mb-1">
+                          終點 (必填){selectedTask?.presetDest ? <span className="ml-2 text-emerald-500 font-normal">✓ 已自動帶入</span> : <span className="ml-2 text-slate-400 font-normal">輸入關鍵字可快速選擇</span>}
+                        </label>
+                        <input type="text" value={taskDestination}
+                          onChange={(e) => handleDestInput(e.target.value)}
+                          placeholder="例：病房 3A、放射科、心功能..."
+                          autoFocus={!selectedTask?.presetDest} required
                           className="w-full px-4 py-2 rounded-lg border-2 border-indigo-200 focus:border-indigo-500 outline-none" />
+                        {destSuggestions.length > 0 && (
+                          <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-indigo-200 rounded-lg shadow-lg overflow-hidden">
+                            {destSuggestions.map(s => (
+                              <button key={s} type="button"
+                                onClick={() => { setTaskDestination(s); setDestSuggestions([]); }}
+                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-indigo-50 text-slate-700 border-b border-slate-100 last:border-0 flex items-center gap-2">
+                                <Icon name="MapPin" className="h-3.5 w-3.5 text-indigo-400" />
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
