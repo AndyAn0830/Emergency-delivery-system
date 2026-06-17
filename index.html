@@ -1047,7 +1047,7 @@
       try {
         var sourceEl = document.getElementById('app-source');
         var sourceCode = sourceEl.textContent;
-        var transformed = Babel.transform(sourceCode, { presets: ['react'] }).code;
+        var transformed = Babel.transform(sourceCode, { presets: [['react', { runtime: 'classic' }]] }).code;
         var execScript = document.createElement('script');
         execScript.text = transformed;
         document.body.appendChild(execScript);
