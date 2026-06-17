@@ -51,7 +51,7 @@
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" data-presets="react">
+  <script type="text/plain" id="app-source" data-presets="react">
     const { useState, useMemo, useEffect, useRef } = React;
 
     // ─── Lucide icon helper ───────────────────────────────────────────────────
@@ -1039,6 +1039,27 @@
     // ─── Mount ────────────────────────────────────────────────────────────────
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<ErrorBoundary><App /></ErrorBoundary>);
+  </script>
+
+  <!-- 手動轉譯並執行上方程式碼，避免 Babel 自動掃描頁面所有 script 標籤造成的衝突 -->
+  <script>
+    (function () {
+      try {
+        var sourceEl = document.getElementById('app-source');
+        var sourceCode = sourceEl.textContent;
+        var transformed = Babel.transform(sourceCode, { presets: ['react'] }).code;
+        var execScript = document.createElement('script');
+        execScript.text = transformed;
+        document.body.appendChild(execScript);
+      } catch (err) {
+        document.getElementById('root').innerHTML =
+          '<div style="padding:40px;font-family:sans-serif;max-width:600px;margin:40px auto;">' +
+          '<h2 style="color:#dc2626;margin-bottom:12px;">系統發生錯誤</h2>' +
+          '<p style="color:#475569;margin-bottom:16px;">程式碼轉譯失敗，請將以下訊息回報給開發者：</p>' +
+          '<pre style="background:#fef2f2;border:1px solid #fecaca;padding:12px;border-radius:8px;font-size:13px;overflow:auto;color:#991b1b;">' +
+          (err && err.message ? err.message : String(err)) + '</pre></div>';
+      }
+    })();
   </script>
 </body>
 </html>
