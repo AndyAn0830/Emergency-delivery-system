@@ -38,22 +38,18 @@
     function Icon({ name, className = '', strokeWidth = 2 }) {
       const ref = useRef(null);
       useEffect(() => {
-        if (ref.current && window.lucide) {
+        if (ref.current && window.lucide && window.lucide.createElement) {
           ref.current.innerHTML = '';
           try {
-            const iconFn = window.lucide[name];
-            if (!iconFn) return;
-            const [tag, attrs, children] = iconFn;
-            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            const mergedAttrs = { ...attrs, class: className, 'stroke-width': strokeWidth };
-            Object.entries(mergedAttrs).forEach(([k, v]) => svg.setAttribute(k, v));
-            (children || []).forEach(([childTag, childAttrs]) => {
-              const el = document.createElementNS('http://www.w3.org/2000/svg', childTag);
-              Object.entries(childAttrs || {}).forEach(([k, v]) => el.setAttribute(k, v));
-              svg.appendChild(el);
+            const iconNode = window.lucide[name];
+            if (!iconNode) return;
+            // 使用 lucide 官方提供的 createElement，傳入 icon 的節點陣列
+            const svg = window.lucide.createElement(iconNode, {
+              class: className,
+              'stroke-width': strokeWidth,
             });
             ref.current.appendChild(svg);
-          } catch(e) {}
+          } catch(e) { /* icon 渲染失敗時安靜忽略，不影響其餘畫面 */ }
         }
       }, [name, className, strokeWidth]);
       return <span ref={ref} style={{display:'inline-flex',alignItems:'center'}}></span>;
@@ -448,16 +444,23 @@
         // Esc 鍵（電腦）
         const keyHandler = (e) => { if (e.key === 'Escape') closeTaskModal(); };
         window.addEventListener('keydown', keyHandler);
-        // 手機返回鍵：pushState 佔位，popstate 時攔截
-        window.history.pushState({ modalOpen: true }, '');
-        const popHandler = (e) => { closeTaskModal(); };
+        // 手機返回鍵：嘗試使用 history API，若瀏覽器環境限制（file://、安全性設定等）則安全忽略
+        let pushedState = false;
+        try {
+          window.history.pushState({ modalOpen: true }, '');
+          pushedState = true;
+        } catch (e) { /* 部分環境（如本機檔案開啟）不支援，忽略即可，Esc/按鈕仍可關閉 */ }
+        const popHandler = () => { closeTaskModal(); };
         window.addEventListener('popstate', popHandler);
         return () => {
           window.removeEventListener('keydown', keyHandler);
           window.removeEventListener('popstate', popHandler);
-          // 如果是程式主動關閉（非返回鍵），把剛才 push 的 state 清掉
-          if (window.history.state && window.history.state.modalOpen) {
-            window.history.back();
+          if (pushedState) {
+            try {
+              if (window.history.state && window.history.state.modalOpen) {
+                window.history.back();
+              }
+            } catch (e) { /* 忽略 */ }
           }
         };
       }, [showTaskModal]);
@@ -995,9 +998,27 @@
       );
     }
 
+    // ─── Error Boundary ──────────────────────────────────────────────────────
+    class ErrorBoundary extends React.Component {
+      constructor(props) { super(props); this.state = { hasError: false, errorMsg: '' }; }
+      static getDerivedStateFromError(error) { return { hasError: true, errorMsg: error?.message || String(error) }; }
+      render() {
+        if (this.state.hasError) {
+          return (
+            <div style={{padding: '40px', fontFamily: 'sans-serif', maxWidth: '600px', margin: '40px auto'}}>
+              <h2 style={{color: '#dc2626', marginBottom: '12px'}}>系統發生錯誤</h2>
+              <p style={{color: '#475569', marginBottom: '16px'}}>頁面渲染時發生問題，請嘗試重新整理（Ctrl+Shift+R）。若持續發生，請將以下錯誤訊息回報給開發者：</p>
+              <pre style={{background: '#fef2f2', border: '1px solid #fecaca', padding: '12px', borderRadius: '8px', fontSize: '13px', overflow: 'auto', color: '#991b1b'}}>{this.state.errorMsg}</pre>
+            </div>
+          );
+        }
+        return this.props.children;
+      }
+    }
+
     // ─── Mount ────────────────────────────────────────────────────────────────
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+    root.render(<ErrorBoundary><App /></ErrorBoundary>);
   </script>
 </body>
 </html>
