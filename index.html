@@ -8,10 +8,30 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script type="module">
-    import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-    import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, where, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
-    window._firebase = { initializeApp, getApps, getApp, getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, where, getDocs };
+  <!-- Firebase compat 版本：使用傳統全域變數，避免與 Babel 的 script 掃描機制衝突 -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script>
+    window._firebase = {
+      initializeApp: (config) => firebase.initializeApp(config),
+      getApps: () => firebase.apps,
+      getApp: () => firebase.app(),
+      getFirestore: (app) => firebase.firestore(app),
+      collection: (db, path) => db.collection(path),
+      addDoc: (colRef, data) => colRef.add(data),
+      updateDoc: (db_doc_ref, data) => db_doc_ref.update(data),
+      deleteDoc: (db_doc_ref) => db_doc_ref.delete(),
+      doc: (db, collectionName, id) => db.collection(collectionName).doc(id),
+      onSnapshot: (q, onNext, onError) => q.onSnapshot(onNext, onError),
+      query: (colRef, ...constraints) => {
+        let q = colRef;
+        constraints.forEach(c => { q = c(q); });
+        return q;
+      },
+      orderBy: (field, direction = 'asc') => (q) => q.orderBy(field, direction),
+      where: (field, op, value) => (q) => q.where(field, op, value),
+      getDocs: (q) => q.get(),
+    };
     window._firebaseReady = true;
     window.dispatchEvent(new Event('firebaseReady'));
   </script>
