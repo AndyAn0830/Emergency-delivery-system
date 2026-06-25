@@ -90,7 +90,10 @@
       { id: 'meal',      name: '送餐盒',         icon: 'Utensils',         color: 'bg-yellow-100 text-yellow-600 border-yellow-200',   presetDest: '同心圓餐廳' },
       { id: 'fee',       name: '個費',           icon: 'Wallet',           color: 'bg-emerald-100 text-emerald-600 border-emerald-200' },
       { id: 'records',   name: '還物品及病歷',   icon: 'FileBox',          color: 'bg-stone-100 text-stone-600 border-stone-200' },
-      { id: 'transfer',  name: '檢傷診間轉病人', icon: 'UserPlus',         color: 'bg-indigo-100 text-indigo-600 border-indigo-200' },
+      { id: 'admit',     name: '住院',           icon: 'Hospital',         color: 'bg-blue-100 text-blue-700 border-blue-200',         presetDest: '病房' },
+      { id: 'blood',     name: '領血',           icon: 'Droplets',         color: 'bg-rose-100 text-rose-700 border-rose-200',         presetDest: '血庫' },
+      { id: 'document',  name: '送單',           icon: 'FileText',         color: 'bg-slate-100 text-slate-700 border-slate-200' },
+      { id: 'transfer',  name: '轉送病人',       icon: 'UserPlus',         color: 'bg-indigo-100 text-indigo-600 border-indigo-200' },
       { id: 'empty_bed', name: '推空床',         icon: 'Bed',              color: 'bg-cyan-100 text-cyan-600 border-cyan-200',         presetDest: '急診室' },
       { id: 'make_bed',  name: '鋪床單',         icon: 'BedDouble',        color: 'bg-teal-100 text-teal-600 border-teal-200',         presetDest: '急診室' },
       { id: 'borrow',    name: '借物',           icon: 'ShoppingBag',      color: 'bg-fuchsia-100 text-fuchsia-600 border-fuchsia-200' },
@@ -108,23 +111,34 @@
       { id: 'exam',      name: '檢查',           icon: 'ClipboardCheck',   color: 'bg-indigo-100 text-indigo-700 border-indigo-200',   presetDest: '' },
     ];
 
-    // 地點關鍵字建議清單
-    const DEST_SUGGESTIONS = [
-      '心功能檢查室', '消化功能檢查室', '牙科', '眼科', '洗腎室', '婦產科',
-      '合心樓CT', '合心樓MRI', '合心樓 X-RAY', '麻醉訪視門診', '開刀房',
-      '急診藥局', '檢驗科', '傳送中心', '供應中心', '同心圓餐廳',
-      '病房', '放射科', '急診室',
-    ];
+    const ITEM_NAME_ALIASES = { '檢傷診間轉病人': '轉送病人' };
+    const getItemName = (name) => ITEM_NAME_ALIASES[name] || name;
+
+    const DEFAULT_ORIGIN = '急診室';
+    const TRANSFER_ORIGIN_SUGGESTIONS = ['檢傷', '急診診間'];
+    const TRANSFER_DESTINATION_SUGGESTIONS = ['急診診間', '急診留觀'];
 
     // 「檢查」項目專屬建議地點（點選後直接顯示清單）
     const EXAM_DESTINATIONS = [
-      '心功能檢查室', '消化功能檢查室', '牙科', '眼科', '洗腎室', '婦產科',
+      '第一洗腎室', '第二洗腎室', '心功能檢查室', '心導管室', '支氣管鏡室',
+      '消化系統檢查室', '腎臟內科檢查室', '放射科超音波室', '神經超音波室',
+      '腦波檢查室', '血管攝影室', '特殊攝影室', '眼科門診', '牙科門診',
+      '二五西耳鼻喉科治療室', '二七東眼科治療室', '婦產科',
     ];
+
+    // 地點關鍵字建議清單
+    const LOCATION_SUGGESTIONS = Array.from(new Set([
+      DEFAULT_ORIGIN, '檢傷', '急診診間', '急診留觀', '病房', '血庫',
+      '合心樓CT', '合心樓MRI', '合心樓 X-RAY', '麻醉訪視門診', '開刀房',
+      '急診藥局', '檢驗科', '傳送中心', '供應中心', '同心圓餐廳', '放射科',
+      ...EXAM_DESTINATIONS,
+    ]));
 
     const generateMockData = () => {
       const records = [];
       const today = new Date();
       const MOCK_NAMES = ['陳大哥', '林大姊'];
+      const MOCK_ORIGIN = ['急診室', '檢傷', '急診診間'];
       const MOCK_DEST = ['病房 3A', '放射科'];
       for (let i = 0; i < 50; i++) {
         const d = new Date(today);
@@ -136,6 +150,7 @@
           date: d.toISOString().split('T')[0],
           startTime: '10:00', endTime: '10:15',
           transporter: MOCK_NAMES[Math.floor(Math.random() * MOCK_NAMES.length)],
+          origin: MOCK_ORIGIN[Math.floor(Math.random() * MOCK_ORIGIN.length)],
           destination: MOCK_DEST[Math.floor(Math.random() * MOCK_DEST.length)],
           timestamp: d.getTime(),
         });
@@ -249,7 +264,8 @@
         const newRecord = {
           item: recordData.item, shift: currentShift, date: currentDate,
           startTime: recordData.startTime, endTime: null,
-          transporter: currentUser, destination: recordData.destination,
+          transporter: currentUser, origin: recordData.origin || DEFAULT_ORIGIN,
+          destination: recordData.destination,
           timestamp: Date.now(),
         };
         const fb = window._firebase;
@@ -427,7 +443,9 @@
       const [showTaskModal, setShowTaskModal] = useState(false);
       const [selectedTask, setSelectedTask] = useState(null);
       const [taskStartTime, setTaskStartTime] = useState('');
+      const [taskOrigin, setTaskOrigin] = useState(DEFAULT_ORIGIN);
       const [taskDestination, setTaskDestination] = useState('');
+      const [originSuggestions, setOriginSuggestions] = useState([]);
       const [destSuggestions, setDestSuggestions] = useState([]);
 
       const todaysRecords = records.filter(r => r.date === currentDate);
@@ -440,24 +458,55 @@
         setSelectedTask(item);
         const now = new Date();
         setTaskStartTime(`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`);
+        setTaskOrigin(item.id === 'transfer' ? '檢傷' : DEFAULT_ORIGIN);
         setTaskDestination(item.presetDest || '');
-        // 「檢查」項目：點選後直接顯示地點選單
-        setDestSuggestions(item.id === 'exam' ? EXAM_DESTINATIONS : []);
+        setOriginSuggestions(item.id === 'transfer' ? TRANSFER_ORIGIN_SUGGESTIONS : []);
+        if (item.id === 'exam') setDestSuggestions(EXAM_DESTINATIONS);
+        else if (item.id === 'transfer') setDestSuggestions(TRANSFER_DESTINATION_SUGGESTIONS);
+        else setDestSuggestions([]);
         setShowTaskModal(true);
+      };
+      const getLocationMatches = (val, field, item = selectedTask) => {
+        const keyword = val.trim();
+        let source = LOCATION_SUGGESTIONS;
+        if (item?.id === 'transfer') source = field === 'origin' ? TRANSFER_ORIGIN_SUGGESTIONS : TRANSFER_DESTINATION_SUGGESTIONS;
+        if (item?.id === 'exam' && field === 'destination') source = EXAM_DESTINATIONS;
+        if (!keyword) {
+          if (item?.id === 'transfer') return source;
+          if (item?.id === 'exam' && field === 'destination') return EXAM_DESTINATIONS;
+          return [];
+        }
+        return source.filter(s => s.includes(keyword));
+      };
+      const handleOriginInput = (val) => {
+        setTaskOrigin(val);
+        setOriginSuggestions(getLocationMatches(val, 'origin'));
       };
       const handleDestInput = (val) => {
         setTaskDestination(val);
-        if (val.trim().length === 0) { setDestSuggestions([]); return; }
-        const matched = DEST_SUGGESTIONS.filter(s => s.includes(val.trim()));
-        setDestSuggestions(matched);
+        setDestSuggestions(getLocationMatches(val, 'destination'));
+      };
+      const swapTaskLocations = () => {
+        const currentOrigin = document.getElementById('task-origin-input')?.value ?? taskOrigin;
+        const currentDestination = document.getElementById('task-destination-input')?.value ?? taskDestination;
+        setTaskOrigin(currentDestination);
+        setTaskDestination(currentOrigin);
+        setOriginSuggestions([]);
+        setDestSuggestions([]);
       };
       const submitTask = (e) => {
         e.preventDefault();
+        if (!taskOrigin.trim()) { showToast("請填寫起點", 'error'); return; }
         if (!taskDestination.trim()) { showToast("請填寫終點", 'error'); return; }
-        handleConfirmRecord({ item: selectedTask.name, startTime: taskStartTime, destination: taskDestination.trim() });
-        setShowTaskModal(false); setSelectedTask(null); setDestSuggestions([]);
+        handleConfirmRecord({
+          item: selectedTask.name,
+          startTime: taskStartTime,
+          origin: taskOrigin.trim(),
+          destination: taskDestination.trim()
+        });
+        setShowTaskModal(false); setSelectedTask(null); setOriginSuggestions([]); setDestSuggestions([]);
       };
-      const closeTaskModal = () => { setShowTaskModal(false); setSelectedTask(null); setDestSuggestions([]); };
+      const closeTaskModal = () => { setShowTaskModal(false); setSelectedTask(null); setOriginSuggestions([]); setDestSuggestions([]); };
       // Esc 鍵 + 手機瀏覽器返回鍵 → 關閉 modal
       useEffect(() => {
         if (!showTaskModal) return;
@@ -522,7 +571,7 @@
                     <Icon name="X" className="h-5 w-5" />
                   </button>
                 </div>
-                <form onSubmit={submitTask} className="p-6 space-y-5">
+                <form onSubmit={submitTask} className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
                   <div className="bg-slate-50 p-3 rounded-lg flex items-center justify-between border border-slate-100">
                     <span className="text-sm text-slate-500 flex items-center gap-2"><Icon name="User" className="h-4 w-4" /> 傳送員</span>
                     <span className="font-semibold text-slate-800">{currentUser}</span>
@@ -535,31 +584,67 @@
                       className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none" required />
                   </div>
                   <div className="relative">
-                    <div className="absolute top-0 left-4 bottom-0 flex flex-col items-center justify-center space-y-1">
+                    <div className="absolute top-8 left-4 bottom-8 flex flex-col items-center">
                       <div className="w-2 h-2 rounded-full bg-slate-300"></div>
-                      <div className="w-0.5 h-6 bg-slate-200"></div>
+                      <div className="w-0.5 flex-1 bg-slate-200"></div>
                       <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
                     </div>
-                    <div className="pl-10 space-y-4">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">起點</label>
-                        <div className="w-full px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-medium">急診室</div>
+                    <div className="pl-10 space-y-3">
+                      <div className="relative">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">
+                          起點 (必填){selectedTask?.id === 'transfer'
+                            ? <span className="ml-2 text-slate-400 font-normal">檢傷或急診診間</span>
+                            : <span className="ml-2 text-slate-400 font-normal">可手動調整</span>}
+                        </label>
+                        <input id="task-origin-input" type="text" value={taskOrigin}
+                          onChange={(e) => handleOriginInput(e.target.value)}
+                          onFocus={() => setOriginSuggestions(getLocationMatches(taskOrigin, 'origin'))}
+                          placeholder={selectedTask?.id === 'transfer' ? '例：檢傷、診間16床...' : '例：急診室、病房 3A...'}
+                          required
+                          className="w-full px-4 py-2 rounded-lg border-2 border-slate-200 focus:border-slate-400 outline-none" />
+                        {originSuggestions.length > 0 && (
+                          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-y-auto max-h-56">
+                            {originSuggestions.map(s => (
+                              <button key={s} type="button"
+                                onClick={() => { setTaskOrigin(s); setOriginSuggestions([]); }}
+                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 text-slate-700 border-b border-slate-100 last:border-0 flex items-center gap-2">
+                                <Icon name="MapPin" className="h-3.5 w-3.5 text-slate-400" />
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex justify-center">
+                        <button type="button" onClick={swapTaskLocations}
+                          className="h-9 w-9 rounded-full border border-indigo-200 bg-white text-indigo-600 shadow-sm hover:bg-indigo-50 flex items-center justify-center transition-colors"
+                          aria-label="交換起點與終點"
+                          title="交換起點與終點">
+                          <Icon name="RefreshCw" className="h-4 w-4" />
+                        </button>
                       </div>
                       <div className="relative">
                         <label className="block text-xs font-medium text-indigo-600 mb-1">
                           終點 (必填){selectedTask?.presetDest
                             ? <span className="ml-2 text-emerald-500 font-normal">✓ 已自動帶入</span>
-                            : selectedTask?.id === 'exam'
+                            : selectedTask?.id === 'transfer'
+                              ? <span className="ml-2 text-indigo-400 font-normal">急診診間或急診留觀</span>
+                              : selectedTask?.id === 'exam'
                               ? <span className="ml-2 text-indigo-400 font-normal">請從清單選擇或手動輸入</span>
                               : <span className="ml-2 text-slate-400 font-normal">輸入關鍵字可快速選擇</span>}
                         </label>
-                        <input type="text" value={taskDestination}
+                        <input id="task-destination-input" type="text" value={taskDestination}
                           onChange={(e) => handleDestInput(e.target.value)}
-                          placeholder={selectedTask?.id === 'exam' ? '選擇或輸入檢查地點...' : '例：病房 3A、放射科...'}
+                          onFocus={() => setDestSuggestions(getLocationMatches(taskDestination, 'destination'))}
+                          placeholder={selectedTask?.id === 'transfer'
+                            ? '例：診間15床、留觀36床...'
+                            : selectedTask?.id === 'exam'
+                              ? '選擇或輸入檢查地點...'
+                              : '例：病房 3A、放射科...'}
                           autoFocus={!selectedTask?.presetDest} required
                           className="w-full px-4 py-2 rounded-lg border-2 border-indigo-200 focus:border-indigo-500 outline-none" />
                         {destSuggestions.length > 0 && (
-                          <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-indigo-200 rounded-lg shadow-lg overflow-hidden">
+                          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-indigo-200 rounded-lg shadow-lg overflow-y-auto max-h-56">
                             {destSuggestions.map(s => (
                               <button key={s} type="button"
                                 onClick={() => { setTaskDestination(s); setDestSuggestions([]); }}
@@ -640,7 +725,8 @@
                     <p className="text-sm">尚無任務紀錄</p>
                   </div>
                 ) : todaysRecords.map((record) => {
-                  const itemDef = TRANSPORT_ITEMS.find(i => i.name === record.item);
+                  const displayItemName = getItemName(record.item);
+                  const itemDef = TRANSPORT_ITEMS.find(i => i.name === displayItemName);
                   const isCompleted = !!record.endTime;
                   return (
                     <div key={record.id} className={`flex flex-col p-3 bg-white border ${isCompleted ? 'border-slate-200' : 'border-emerald-300 shadow-sm'} rounded-lg`}>
@@ -649,7 +735,7 @@
                           <div className={`p-1.5 rounded-md ${itemDef ? itemDef.color : 'bg-slate-100'}`}>
                             <Icon name={itemDef ? itemDef.icon : 'Package'} className="h-4 w-4" />
                           </div>
-                          <p className="text-sm font-bold text-slate-800">{record.item}</p>
+                          <p className="text-sm font-bold text-slate-800">{displayItemName}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 ${isCompleted ? 'bg-slate-100 text-slate-500' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>
@@ -671,7 +757,11 @@
                         </div>
                         <div className="flex items-center gap-1.5 text-xs text-slate-600">
                           <Icon name="MapPin" className="h-3.5 w-3.5 text-indigo-400" />
-                          <span className="text-slate-500 truncate">急診 → <span className="font-medium text-slate-700">{record.destination}</span></span>
+                          <span className="text-slate-500 truncate">
+                            <span className="font-medium text-slate-700">{record.origin || DEFAULT_ORIGIN}</span>
+                            <span className="mx-1">→</span>
+                            <span className="font-medium text-slate-700">{record.destination}</span>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -767,7 +857,8 @@
         const shiftCounts = { '白班': 0, '小夜': 0, '大夜': 0 };
         const personCounts = {};
         filteredRecords.forEach(r => {
-          if (itemCounts[r.item] !== undefined) itemCounts[r.item]++;
+          const itemName = getItemName(r.item);
+          if (itemCounts[itemName] !== undefined) itemCounts[itemName]++;
           if (shiftCounts[r.shift] !== undefined) shiftCounts[r.shift]++;
           const name = r.transporter || '未知';
           personCounts[name] = (personCounts[name] || 0) + 1;
@@ -781,7 +872,7 @@
         const BOM = '\uFEFF';
         const headers = ['日期', '班別', '傳送員', '傳送項目', '起點', '終點', '起始時間', '完成時間', '狀態'];
         const rows = filteredRecords.map(r => [
-          r.date, r.shift, r.transporter, r.item, '急診室', r.destination, r.startTime, r.endTime || '', r.endTime ? '已完成' : '進行中'
+          r.date, r.shift, r.transporter, getItemName(r.item), r.origin || DEFAULT_ORIGIN, r.destination, r.startTime, r.endTime || '', r.endTime ? '已完成' : '進行中'
         ]);
         const csvContent = BOM + [headers.join(','), ...rows.map(row => row.map(cell => `"${cell || ''}"`).join(','))].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
