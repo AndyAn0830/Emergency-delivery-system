@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>急診傳送紀錄系統</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
   <!-- Firebase compat 版本：使用傳統全域變數，避免與 Babel 的 script 掃描機制衝突 -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -32,10 +32,11 @@
       where: (field, op, value) => (q) => q.where(field, op, value),
       getDocs: (q) => q.get(),
     };
-    window._firebaseReady = true;
-    window.dispatchEvent(new Event('firebaseReady'));
+    // 僅在 Firebase SDK 成功載入時才標記就緒（網路斷線或 CDN 失敗時改用本機模式）
+    window._firebaseReady = (typeof firebase !== 'undefined');
+    if (window._firebaseReady) window.dispatchEvent(new Event('firebaseReady'));
   </script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://unpkg.com/lucide@1.47.0/dist/umd/lucide.min.js"></script>
   <style>
     @keyframes slideInFromBottom {
       from { opacity: 0; transform: translateX(-50%) translateY(20px); }
@@ -76,13 +77,35 @@
     }
 
     // ─── Constants ────────────────────────────────────────────────────────────
-    const SHIFTS = ['白班', '小夜', '大夜'];
-    const getShiftByTime = () => {
-      const h = new Date().getHours();
-      if (h >= 8 && h < 16) return '白班';
-      if (h >= 16 && h < 24) return '小夜';
-      return '大夜';
+    // 班別設定：key 為存入資料庫的值；舊資料的「小夜」「大夜」會自動對應到新名稱
+    const SHIFTS = [
+      { key: '白班',             label: '白班',   time: '07:00-15:30', bar: 'bg-amber-400' },
+      { key: '小夜班',           label: '小夜班', time: '15:00-23:00', bar: 'bg-indigo-500' },
+      { key: '大夜班',           label: '大夜班', time: '23:00-07:00', bar: 'bg-slate-700' },
+      { key: '支援 10:00-18:00', label: '支援',   time: '10:00-18:00', bar: 'bg-emerald-500' },
+      { key: '支援 12:00-14:00', label: '支援',   time: '12:00-14:00', bar: 'bg-cyan-500' },
+      { key: '支援 12:30-16:40', label: '支援',   time: '12:30-16:40', bar: 'bg-rose-400' },
+    ];
+    const LEGACY_SHIFT_MAP = { '小夜': '小夜班', '大夜': '大夜班' };
+    const normalizeShift = (s) => LEGACY_SHIFT_MAP[s] || s;
+    const getShiftDef = (s) => SHIFTS.find(x => x.key === normalizeShift(s));
+    const formatShift = (s) => {
+      const def = getShiftDef(s);
+      return def ? `${def.label}(${def.time})` : (s || '');
     };
+
+    // 依目前時間自動帶入三個主要班別（支援班請手動選擇）
+    const getShiftByTime = () => {
+      const now = new Date();
+      const m = now.getHours() * 60 + now.getMinutes();
+      if (m >= 7 * 60 && m < 15 * 60) return '白班';     // 07:00–14:59
+      if (m >= 15 * 60 && m < 23 * 60) return '小夜班';  // 15:00–22:59（15:00–15:30 交班重疊，預設帶入小夜班）
+      return '大夜班';                                    // 23:00–06:59
+    };
+
+    // 取得「本地」日期字串 YYYY-MM-DD（toISOString 是 UTC，台灣 00:00–08:00 會變成前一天）
+    const getLocalDateStr = (d = new Date()) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
     const TRANSPORT_ITEMS = [
       { id: 'oxygen',    name: '換氧氣',        icon: 'Wind',             color: 'bg-blue-100 text-blue-600 border-blue-200',         presetDest: '傳送中心' },
@@ -90,10 +113,7 @@
       { id: 'meal',      name: '送餐盒',         icon: 'Utensils',         color: 'bg-yellow-100 text-yellow-600 border-yellow-200',   presetDest: '同心圓餐廳' },
       { id: 'fee',       name: '個費',           icon: 'Wallet',           color: 'bg-emerald-100 text-emerald-600 border-emerald-200' },
       { id: 'records',   name: '還物品及病歷',   icon: 'FileBox',          color: 'bg-stone-100 text-stone-600 border-stone-200' },
-      { id: 'admit',     name: '住院',           icon: 'Hospital',         color: 'bg-blue-100 text-blue-700 border-blue-200',         presetDest: '病房' },
-      { id: 'blood',     name: '領血',           icon: 'Droplets',         color: 'bg-rose-100 text-rose-700 border-rose-200',         presetDest: '血庫' },
-      { id: 'document',  name: '送單',           icon: 'FileText',         color: 'bg-slate-100 text-slate-700 border-slate-200' },
-      { id: 'transfer',  name: '轉送病人',       icon: 'UserPlus',         color: 'bg-indigo-100 text-indigo-600 border-indigo-200' },
+      { id: 'transfer',  name: '檢傷診間轉病人', icon: 'UserPlus',         color: 'bg-indigo-100 text-indigo-600 border-indigo-200' },
       { id: 'empty_bed', name: '推空床',         icon: 'Bed',              color: 'bg-cyan-100 text-cyan-600 border-cyan-200',         presetDest: '急診室' },
       { id: 'make_bed',  name: '鋪床單',         icon: 'BedDouble',        color: 'bg-teal-100 text-teal-600 border-teal-200',         presetDest: '急診室' },
       { id: 'borrow',    name: '借物',           icon: 'ShoppingBag',      color: 'bg-fuchsia-100 text-fuchsia-600 border-fuchsia-200' },
@@ -111,34 +131,23 @@
       { id: 'exam',      name: '檢查',           icon: 'ClipboardCheck',   color: 'bg-indigo-100 text-indigo-700 border-indigo-200',   presetDest: '' },
     ];
 
-    const ITEM_NAME_ALIASES = { '檢傷診間轉病人': '轉送病人' };
-    const getItemName = (name) => ITEM_NAME_ALIASES[name] || name;
-
-    const DEFAULT_ORIGIN = '急診室';
-    const TRANSFER_ORIGIN_SUGGESTIONS = ['檢傷', '急診診間'];
-    const TRANSFER_DESTINATION_SUGGESTIONS = ['急診診間', '急診留觀'];
+    // 地點關鍵字建議清單
+    const DEST_SUGGESTIONS = [
+      '心功能檢查室', '消化功能檢查室', '牙科', '眼科', '洗腎室', '婦產科',
+      '合心樓CT', '合心樓MRI', '合心樓 X-RAY', '麻醉訪視門診', '開刀房',
+      '急診藥局', '檢驗科', '傳送中心', '供應中心', '同心圓餐廳',
+      '病房', '放射科', '急診室',
+    ];
 
     // 「檢查」項目專屬建議地點（點選後直接顯示清單）
     const EXAM_DESTINATIONS = [
-      '第一洗腎室', '第二洗腎室', '心功能檢查室', '心導管室', '支氣管鏡室',
-      '消化系統檢查室', '腎臟內科檢查室', '放射科超音波室', '神經超音波室',
-      '腦波檢查室', '血管攝影室', '特殊攝影室', '眼科門診', '牙科門診',
-      '二五西耳鼻喉科治療室', '二七東眼科治療室', '婦產科',
+      '心功能檢查室', '消化功能檢查室', '牙科', '眼科', '洗腎室', '婦產科',
     ];
-
-    // 地點關鍵字建議清單
-    const LOCATION_SUGGESTIONS = Array.from(new Set([
-      DEFAULT_ORIGIN, '檢傷', '急診診間', '急診留觀', '病房', '血庫',
-      '合心樓CT', '合心樓MRI', '合心樓 X-RAY', '麻醉訪視門診', '開刀房',
-      '急診藥局', '檢驗科', '傳送中心', '供應中心', '同心圓餐廳', '放射科',
-      ...EXAM_DESTINATIONS,
-    ]));
 
     const generateMockData = () => {
       const records = [];
       const today = new Date();
       const MOCK_NAMES = ['陳大哥', '林大姊'];
-      const MOCK_ORIGIN = ['急診室', '檢傷', '急診診間'];
       const MOCK_DEST = ['病房 3A', '放射科'];
       for (let i = 0; i < 50; i++) {
         const d = new Date(today);
@@ -146,11 +155,10 @@
         const item = TRANSPORT_ITEMS[Math.floor(Math.random() * TRANSPORT_ITEMS.length)];
         records.push({
           id: `mock-${i}`, item: item.name,
-          shift: SHIFTS[Math.floor(Math.random() * SHIFTS.length)],
-          date: d.toISOString().split('T')[0],
+          shift: SHIFTS[Math.floor(Math.random() * SHIFTS.length)].key,
+          date: getLocalDateStr(d),
           startTime: '10:00', endTime: '10:15',
           transporter: MOCK_NAMES[Math.floor(Math.random() * MOCK_NAMES.length)],
-          origin: MOCK_ORIGIN[Math.floor(Math.random() * MOCK_ORIGIN.length)],
           destination: MOCK_DEST[Math.floor(Math.random() * MOCK_DEST.length)],
           timestamp: d.getTime(),
         });
@@ -197,7 +205,7 @@
       const [activeTab, setActiveTab] = useState('entry');
       const [records, setRecords] = useState([]);
       const [currentShift, setCurrentShift] = useState(getShiftByTime());
-      const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
+      const [currentDate, setCurrentDate] = useState(getLocalDateStr());
       const [currentUser, setCurrentUser] = useState('');
       const [toastMessage, setToastMessage] = useState(null);
       const [showSettings, setShowSettings] = useState(false);
@@ -207,9 +215,12 @@
       const [db, setDb] = useState(null);
       const [isCloudSync, setIsCloudSync] = useState(false);
 
+      const toastTimerRef = useRef(null);
       const showToast = (msg, type = 'error') => {
         setToastMessage({ text: msg, type });
-        setTimeout(() => setToastMessage(null), 3000);
+        // 清除前一個計時器，避免新訊息被舊計時器提早關閉
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = setTimeout(() => setToastMessage(null), 3000);
       };
 
       useEffect(() => {
@@ -220,7 +231,10 @@
           }
           try {
             const fb = window._firebase;
-            if (!fb) { setRecords(generateMockData()); return; }
+            if (!fb || typeof firebase === 'undefined') {
+              showToast("無法載入 Firebase，已切換為本機模式", 'error');
+              setRecords(generateMockData()); setDb(null); setIsCloudSync(false); return;
+            }
             const config = JSON.parse(firebaseConfigStr);
             const app = fb.getApps().length === 0 ? fb.initializeApp(config) : fb.getApp();
             const firestoreDb = fb.getFirestore(app);
@@ -248,24 +262,30 @@
           const handler = () => { unsub = init(); };
           window.addEventListener('firebaseReady', handler, { once: true });
           const t = setTimeout(() => { if (!window._firebaseReady) setRecords(generateMockData()); }, 2000);
-          return () => { window.removeEventListener('firebaseReady', handler); clearTimeout(t); };
+          return () => {
+            window.removeEventListener('firebaseReady', handler); clearTimeout(t);
+            if (typeof unsub === 'function') unsub(); // 修正：此路徑原本不會取消雲端監聽
+          };
         }
         return () => { if (typeof unsub === 'function') unsub(); };
       }, [firebaseConfigStr]);
 
       const saveConfig = (newConfigStr) => {
         localStorage.setItem('ehr_firebase_config', newConfigStr);
-        setFirebaseConfigStr(newConfigStr);
         setShowSettings(false);
+        // Firebase App 初始化後無法直接換設定，若已連線過且設定有變更，重新載入頁面套用
+        const alreadyInit = typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0;
+        if (alreadyInit && newConfigStr !== firebaseConfigStr) { window.location.reload(); return; }
+        setFirebaseConfigStr(newConfigStr);
         if (newConfigStr) showToast("正在嘗試連線至 Firebase...", 'success');
       };
 
       const handleConfirmRecord = async (recordData) => {
         const newRecord = {
-          item: recordData.item, shift: currentShift, date: currentDate,
+          item: recordData.item, shift: currentShift,
+          shiftTime: getShiftDef(currentShift)?.time || '', date: currentDate,
           startTime: recordData.startTime, endTime: null,
-          transporter: currentUser, origin: recordData.origin || DEFAULT_ORIGIN,
-          destination: recordData.destination,
+          transporter: currentUser, destination: recordData.destination,
           timestamp: Date.now(),
         };
         const fb = window._firebase;
@@ -443,9 +463,7 @@
       const [showTaskModal, setShowTaskModal] = useState(false);
       const [selectedTask, setSelectedTask] = useState(null);
       const [taskStartTime, setTaskStartTime] = useState('');
-      const [taskOrigin, setTaskOrigin] = useState(DEFAULT_ORIGIN);
       const [taskDestination, setTaskDestination] = useState('');
-      const [originSuggestions, setOriginSuggestions] = useState([]);
       const [destSuggestions, setDestSuggestions] = useState([]);
 
       const todaysRecords = records.filter(r => r.date === currentDate);
@@ -458,55 +476,24 @@
         setSelectedTask(item);
         const now = new Date();
         setTaskStartTime(`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`);
-        setTaskOrigin(item.id === 'transfer' ? '檢傷' : DEFAULT_ORIGIN);
         setTaskDestination(item.presetDest || '');
-        setOriginSuggestions(item.id === 'transfer' ? TRANSFER_ORIGIN_SUGGESTIONS : []);
-        if (item.id === 'exam') setDestSuggestions(EXAM_DESTINATIONS);
-        else if (item.id === 'transfer') setDestSuggestions(TRANSFER_DESTINATION_SUGGESTIONS);
-        else setDestSuggestions([]);
+        // 「檢查」項目：點選後直接顯示地點選單
+        setDestSuggestions(item.id === 'exam' ? EXAM_DESTINATIONS : []);
         setShowTaskModal(true);
-      };
-      const getLocationMatches = (val, field, item = selectedTask) => {
-        const keyword = val.trim();
-        let source = LOCATION_SUGGESTIONS;
-        if (item?.id === 'transfer') source = field === 'origin' ? TRANSFER_ORIGIN_SUGGESTIONS : TRANSFER_DESTINATION_SUGGESTIONS;
-        if (item?.id === 'exam' && field === 'destination') source = EXAM_DESTINATIONS;
-        if (!keyword) {
-          if (item?.id === 'transfer') return source;
-          if (item?.id === 'exam' && field === 'destination') return EXAM_DESTINATIONS;
-          return [];
-        }
-        return source.filter(s => s.includes(keyword));
-      };
-      const handleOriginInput = (val) => {
-        setTaskOrigin(val);
-        setOriginSuggestions(getLocationMatches(val, 'origin'));
       };
       const handleDestInput = (val) => {
         setTaskDestination(val);
-        setDestSuggestions(getLocationMatches(val, 'destination'));
-      };
-      const swapTaskLocations = () => {
-        const currentOrigin = document.getElementById('task-origin-input')?.value ?? taskOrigin;
-        const currentDestination = document.getElementById('task-destination-input')?.value ?? taskDestination;
-        setTaskOrigin(currentDestination);
-        setTaskDestination(currentOrigin);
-        setOriginSuggestions([]);
-        setDestSuggestions([]);
+        if (val.trim().length === 0) { setDestSuggestions([]); return; }
+        const matched = DEST_SUGGESTIONS.filter(s => s.includes(val.trim()));
+        setDestSuggestions(matched);
       };
       const submitTask = (e) => {
         e.preventDefault();
-        if (!taskOrigin.trim()) { showToast("請填寫起點", 'error'); return; }
         if (!taskDestination.trim()) { showToast("請填寫終點", 'error'); return; }
-        handleConfirmRecord({
-          item: selectedTask.name,
-          startTime: taskStartTime,
-          origin: taskOrigin.trim(),
-          destination: taskDestination.trim()
-        });
-        setShowTaskModal(false); setSelectedTask(null); setOriginSuggestions([]); setDestSuggestions([]);
+        handleConfirmRecord({ item: selectedTask.name, startTime: taskStartTime, destination: taskDestination.trim() });
+        setShowTaskModal(false); setSelectedTask(null); setDestSuggestions([]);
       };
-      const closeTaskModal = () => { setShowTaskModal(false); setSelectedTask(null); setOriginSuggestions([]); setDestSuggestions([]); };
+      const closeTaskModal = () => { setShowTaskModal(false); setSelectedTask(null); setDestSuggestions([]); };
       // Esc 鍵 + 手機瀏覽器返回鍵 → 關閉 modal
       useEffect(() => {
         if (!showTaskModal) return;
@@ -571,7 +558,7 @@
                     <Icon name="X" className="h-5 w-5" />
                   </button>
                 </div>
-                <form onSubmit={submitTask} className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+                <form onSubmit={submitTask} className="p-6 space-y-5">
                   <div className="bg-slate-50 p-3 rounded-lg flex items-center justify-between border border-slate-100">
                     <span className="text-sm text-slate-500 flex items-center gap-2"><Icon name="User" className="h-4 w-4" /> 傳送員</span>
                     <span className="font-semibold text-slate-800">{currentUser}</span>
@@ -584,67 +571,31 @@
                       className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none" required />
                   </div>
                   <div className="relative">
-                    <div className="absolute top-8 left-4 bottom-8 flex flex-col items-center">
+                    <div className="absolute top-0 left-4 bottom-0 flex flex-col items-center justify-center space-y-1">
                       <div className="w-2 h-2 rounded-full bg-slate-300"></div>
-                      <div className="w-0.5 flex-1 bg-slate-200"></div>
+                      <div className="w-0.5 h-6 bg-slate-200"></div>
                       <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
                     </div>
-                    <div className="pl-10 space-y-3">
-                      <div className="relative">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">
-                          起點 (必填){selectedTask?.id === 'transfer'
-                            ? <span className="ml-2 text-slate-400 font-normal">檢傷或急診診間</span>
-                            : <span className="ml-2 text-slate-400 font-normal">可手動調整</span>}
-                        </label>
-                        <input id="task-origin-input" type="text" value={taskOrigin}
-                          onChange={(e) => handleOriginInput(e.target.value)}
-                          onFocus={() => setOriginSuggestions(getLocationMatches(taskOrigin, 'origin'))}
-                          placeholder={selectedTask?.id === 'transfer' ? '例：檢傷、診間16床...' : '例：急診室、病房 3A...'}
-                          required
-                          className="w-full px-4 py-2 rounded-lg border-2 border-slate-200 focus:border-slate-400 outline-none" />
-                        {originSuggestions.length > 0 && (
-                          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-y-auto max-h-56">
-                            {originSuggestions.map(s => (
-                              <button key={s} type="button"
-                                onClick={() => { setTaskOrigin(s); setOriginSuggestions([]); }}
-                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 text-slate-700 border-b border-slate-100 last:border-0 flex items-center gap-2">
-                                <Icon name="MapPin" className="h-3.5 w-3.5 text-slate-400" />
-                                {s}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex justify-center">
-                        <button type="button" onClick={swapTaskLocations}
-                          className="h-9 w-9 rounded-full border border-indigo-200 bg-white text-indigo-600 shadow-sm hover:bg-indigo-50 flex items-center justify-center transition-colors"
-                          aria-label="交換起點與終點"
-                          title="交換起點與終點">
-                          <Icon name="RefreshCw" className="h-4 w-4" />
-                        </button>
+                    <div className="pl-10 space-y-4">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">起點</label>
+                        <div className="w-full px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-medium">急診室</div>
                       </div>
                       <div className="relative">
                         <label className="block text-xs font-medium text-indigo-600 mb-1">
                           終點 (必填){selectedTask?.presetDest
                             ? <span className="ml-2 text-emerald-500 font-normal">✓ 已自動帶入</span>
-                            : selectedTask?.id === 'transfer'
-                              ? <span className="ml-2 text-indigo-400 font-normal">急診診間或急診留觀</span>
-                              : selectedTask?.id === 'exam'
+                            : selectedTask?.id === 'exam'
                               ? <span className="ml-2 text-indigo-400 font-normal">請從清單選擇或手動輸入</span>
                               : <span className="ml-2 text-slate-400 font-normal">輸入關鍵字可快速選擇</span>}
                         </label>
-                        <input id="task-destination-input" type="text" value={taskDestination}
+                        <input type="text" value={taskDestination}
                           onChange={(e) => handleDestInput(e.target.value)}
-                          onFocus={() => setDestSuggestions(getLocationMatches(taskDestination, 'destination'))}
-                          placeholder={selectedTask?.id === 'transfer'
-                            ? '例：診間15床、留觀36床...'
-                            : selectedTask?.id === 'exam'
-                              ? '選擇或輸入檢查地點...'
-                              : '例：病房 3A、放射科...'}
+                          placeholder={selectedTask?.id === 'exam' ? '選擇或輸入檢查地點...' : '例：病房 3A、放射科...'}
                           autoFocus={!selectedTask?.presetDest} required
                           className="w-full px-4 py-2 rounded-lg border-2 border-indigo-200 focus:border-indigo-500 outline-none" />
                         {destSuggestions.length > 0 && (
-                          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-indigo-200 rounded-lg shadow-lg overflow-y-auto max-h-56">
+                          <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-indigo-200 rounded-lg shadow-lg overflow-hidden">
                             {destSuggestions.map(s => (
                               <button key={s} type="button"
                                 onClick={() => { setTaskDestination(s); setDestSuggestions([]); }}
@@ -669,7 +620,8 @@
           )}
 
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-wrap gap-4 items-center justify-between">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+             <div className="flex flex-wrap gap-4 items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
                   <Icon name="User" className="h-4 w-4 text-indigo-500" />
@@ -682,13 +634,29 @@
                     className="border-none bg-slate-100 rounded px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-sm" />
                 </div>
               </div>
-              <div className="flex items-center bg-slate-100 p-1 rounded-lg">
-                {SHIFTS.map(shift => (
-                  <button key={shift} onClick={() => setCurrentShift(shift)}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                      currentShift === shift ? 'bg-white shadow-sm text-indigo-700 border border-slate-200' : 'text-slate-500 hover:text-slate-700'
-                    }`}>{shift}</button>
-                ))}
+              <span className="text-xs text-slate-500">
+                目前班別：<span className="font-semibold text-indigo-700">{formatShift(currentShift)}</span>
+              </span>
+             </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1">
+                  <Icon name="Clock" className="h-3.5 w-3.5" /> 選擇班別
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 bg-slate-100 p-1 rounded-lg">
+                  {SHIFTS.map(shift => {
+                    const active = normalizeShift(currentShift) === shift.key;
+                    return (
+                      <button key={shift.key} type="button" onClick={() => setCurrentShift(shift.key)}
+                        aria-pressed={active}
+                        className={`flex flex-col items-center px-2 py-1.5 rounded-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                          active ? 'bg-white shadow-sm text-indigo-700 border border-slate-200' : 'text-slate-500 hover:text-slate-700 border border-transparent'
+                        }`}>
+                        <span className="text-sm font-medium">{shift.label}</span>
+                        <span className="text-[11px] leading-tight opacity-80">{shift.time}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -714,7 +682,7 @@
               <div className="p-4 border-b border-slate-100 bg-slate-50/50 rounded-t-xl flex justify-between items-center">
                 <h2 className="font-semibold text-slate-800 flex items-center gap-2">
                   <Icon name="ClipboardList" className="h-5 w-5 text-slate-500" />
-                  {currentDate === new Date().toISOString().split('T')[0] ? '今日' : '選定日期'}任務
+                  {currentDate === getLocalDateStr() ? '今日' : '選定日期'}任務
                 </h2>
                 <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-1 rounded-full">共 {todaysRecords.length} 件</span>
               </div>
@@ -725,8 +693,7 @@
                     <p className="text-sm">尚無任務紀錄</p>
                   </div>
                 ) : todaysRecords.map((record) => {
-                  const displayItemName = getItemName(record.item);
-                  const itemDef = TRANSPORT_ITEMS.find(i => i.name === displayItemName);
+                  const itemDef = TRANSPORT_ITEMS.find(i => i.name === record.item);
                   const isCompleted = !!record.endTime;
                   return (
                     <div key={record.id} className={`flex flex-col p-3 bg-white border ${isCompleted ? 'border-slate-200' : 'border-emerald-300 shadow-sm'} rounded-lg`}>
@@ -735,7 +702,7 @@
                           <div className={`p-1.5 rounded-md ${itemDef ? itemDef.color : 'bg-slate-100'}`}>
                             <Icon name={itemDef ? itemDef.icon : 'Package'} className="h-4 w-4" />
                           </div>
-                          <p className="text-sm font-bold text-slate-800">{displayItemName}</p>
+                          <p className="text-sm font-bold text-slate-800">{record.item}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 ${isCompleted ? 'bg-slate-100 text-slate-500' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>
@@ -754,14 +721,11 @@
                         <div className="flex items-center gap-1.5 text-xs text-slate-600">
                           <Icon name="User" className="h-3.5 w-3.5 text-slate-400" />
                           <span className="font-medium">{record.transporter}</span>
+                          {record.shift && <span className="text-slate-400">｜{formatShift(record.shift)}</span>}
                         </div>
                         <div className="flex items-center gap-1.5 text-xs text-slate-600">
                           <Icon name="MapPin" className="h-3.5 w-3.5 text-indigo-400" />
-                          <span className="text-slate-500 truncate">
-                            <span className="font-medium text-slate-700">{record.origin || DEFAULT_ORIGIN}</span>
-                            <span className="mx-1">→</span>
-                            <span className="font-medium text-slate-700">{record.destination}</span>
-                          </span>
+                          <span className="text-slate-500 truncate">急診 → <span className="font-medium text-slate-700">{record.destination}</span></span>
                         </div>
                       </div>
                     </div>
@@ -854,12 +818,13 @@
         const total = filteredRecords.length;
         const itemCounts = {};
         TRANSPORT_ITEMS.forEach(i => itemCounts[i.name] = 0);
-        const shiftCounts = { '白班': 0, '小夜': 0, '大夜': 0 };
+        const shiftCounts = {};
+        SHIFTS.forEach(s => shiftCounts[s.key] = 0);
         const personCounts = {};
         filteredRecords.forEach(r => {
-          const itemName = getItemName(r.item);
-          if (itemCounts[itemName] !== undefined) itemCounts[itemName]++;
-          if (shiftCounts[r.shift] !== undefined) shiftCounts[r.shift]++;
+          if (itemCounts[r.item] !== undefined) itemCounts[r.item]++;
+          const sk = normalizeShift(r.shift);
+          if (shiftCounts[sk] !== undefined) shiftCounts[sk]++;
           const name = r.transporter || '未知';
           personCounts[name] = (personCounts[name] || 0) + 1;
         });
@@ -872,12 +837,17 @@
         const BOM = '\uFEFF';
         const headers = ['日期', '班別', '傳送員', '傳送項目', '起點', '終點', '起始時間', '完成時間', '狀態'];
         const rows = filteredRecords.map(r => [
-          r.date, r.shift, r.transporter, getItemName(r.item), r.origin || DEFAULT_ORIGIN, r.destination, r.startTime, r.endTime || '', r.endTime ? '已完成' : '進行中'
+          r.date, formatShift(r.shift), r.transporter, r.item, '急診室', r.destination, r.startTime, r.endTime || '', r.endTime ? '已完成' : '進行中'
         ]);
-        const csvContent = BOM + [headers.join(','), ...rows.map(row => row.map(cell => `"${cell || ''}"`).join(','))].join('\n');
+        // 修正：欄位內的雙引號需跳脫為 ""，否則 Excel 會錯欄
+        const esc = (cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`;
+        const csvContent = BOM + [headers.join(','), ...rows.map(row => row.map(esc).join(','))].join('\r\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob); link.download = `急診傳送紀錄_匯出.csv`; link.click();
+        link.href = url; link.download = `急診傳送紀錄_${getLocalDateStr()}.csv`;
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
       };
 
       const openDeleteRangeConfirm = () => {
@@ -1051,15 +1021,20 @@
             </div>
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
               <p className="text-sm font-medium text-slate-500 mb-3">班別負載分佈</p>
-              <div className="flex gap-2 h-4 w-full rounded-full overflow-hidden bg-slate-100">
-                <div style={{width:`${(stats.shiftCounts['白班']/(stats.total||1)*100)}%`}} className="bg-amber-400"></div>
-                <div style={{width:`${(stats.shiftCounts['小夜']/(stats.total||1)*100)}%`}} className="bg-indigo-500"></div>
-                <div style={{width:`${(stats.shiftCounts['大夜']/(stats.total||1)*100)}%`}} className="bg-slate-700"></div>
+              {/* 修正：原本 gap-2 會讓比例條加總超過 100% 而被截掉 */}
+              <div className="flex h-4 w-full rounded-full overflow-hidden bg-slate-100">
+                {SHIFTS.map(s => (
+                  <div key={s.key} title={`${formatShift(s.key)}：${stats.shiftCounts[s.key]} 件`}
+                    style={{width:`${(stats.shiftCounts[s.key]/(stats.total||1)*100)}%`}} className={s.bar}></div>
+                ))}
               </div>
-              <div className="flex justify-between text-xs text-slate-500 mt-2 px-1">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>白班 ({stats.shiftCounts['白班']})</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500 inline-block"></span>小夜 ({stats.shiftCounts['小夜']})</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-700 inline-block"></span>大夜 ({stats.shiftCounts['大夜']})</span>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-500 mt-2 px-1">
+                {SHIFTS.map(s => (
+                  <span key={s.key} className="flex items-center gap-1 whitespace-nowrap">
+                    <span className={`w-2 h-2 rounded-full inline-block ${s.bar}`}></span>
+                    {s.label}<span className="text-slate-400">{s.time}</span> ({stats.shiftCounts[s.key]})
+                  </span>
+                ))}
               </div>
             </div>
           </div>
